@@ -1,0 +1,24 @@
+# Virtual Environment
+.env/
+venv/
+env/
+*.egg-info/
+.env
+.venv
+
+# Python generated files
+__pycache__/
+*.pyc
+*.log
+*.pot
+
+# Web application specific files
+db.sqlite3
+local_settings.py
+/static_collected/
+
+# Editor/OS specific files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/ 
