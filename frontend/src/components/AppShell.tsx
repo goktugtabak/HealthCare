@@ -1,37 +1,9 @@
-import { useAuth } from '@/contexts/AuthContext';
-import { useNavigate, useLocation } from 'react-router-dom';
-import { Button } from '@/components/ui/button';
-import {
-  LayoutDashboard, FileText, Search, Bell, User, LogOut, Menu, X,
-  Users, BarChart3, ScrollText, Settings
-} from 'lucide-react';
-import { mockNotifications } from '@/data/mockData';
-import { useState } from 'react';
-import { cn } from '@/lib/utils';
-
-const navItems = {
-  engineer: [
-    { label: 'Dashboard', path: '/dashboard', icon: LayoutDashboard },
-    { label: 'Explore Posts', path: '/explore', icon: Search },
-    { label: 'My Posts', path: '/my-posts', icon: FileText },
-    { label: 'Meetings', path: '/meetings', icon: Settings },
-    { label: 'Profile', path: '/profile', icon: User },
-  ],
-  healthcare: [
-    { label: 'Dashboard', path: '/dashboard', icon: LayoutDashboard },
-    { label: 'Explore Posts', path: '/explore', icon: Search },
-    { label: 'My Posts', path: '/my-posts', icon: FileText },
-    { label: 'Meetings', path: '/meetings', icon: Settings },
-    { label: 'Profile', path: '/profile', icon: User },
-  ],
-  admin: [
-    { label: 'Dashboard', path: '/admin', icon: LayoutDashboard },
-    { label: 'Users', path: '/admin/users', icon: Users },
-    { label: 'Posts', path: '/admin/posts', icon: FileText },
-    { label: 'Activity Logs', path: '/admin/logs', icon: ScrollText },
-    { label: 'Statistics', path: '/admin/stats', icon: BarChart3 },
-  ],
-};
+import { useEffect, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
+import { mockNotifications } from "@/data/mockData";
+import { useAuth } from "@/contexts/AuthContext";
+import { Sidebar } from "@/components/Sidebar";
+import { TopNav } from "@/components/TopNav";
 
 export const AppShell = ({ children }: { children: React.ReactNode }) => {
   const { currentUser, logout } = useAuth();
@@ -39,87 +11,62 @@ export const AppShell = ({ children }: { children: React.ReactNode }) => {
   const location = useLocation();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
-  if (!currentUser) return null;
+  useEffect(() => {
+    setMobileMenuOpen(false);
+  }, [location.pathname]);
 
-  const items = navItems[currentUser.role];
-  const unreadCount = mockNotifications.filter(n => n.userId === currentUser.id && !n.read).length;
+  if (!currentUser) {
+    return null;
+  }
+
+  const unreadCount = mockNotifications.filter(
+    (notification) =>
+      notification.userId === currentUser.id && !notification.read,
+  ).length;
+
+  const handleLogout = () => {
+    logout();
+    navigate("/");
+  };
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Top Nav */}
-      <header className="sticky top-0 z-40 border-b border-border bg-card/95 backdrop-blur">
-        <div className="flex h-14 items-center px-4 md:px-6">
-          <button onClick={() => setMobileMenuOpen(!mobileMenuOpen)} className="mr-3 md:hidden">
-            {mobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
-          </button>
-          <span className="text-base font-semibold cursor-pointer" onClick={() => navigate('/dashboard')}>
-            Health AI
-          </span>
+      <TopNav
+        unreadCount={unreadCount}
+        user={currentUser}
+        isMobileMenuOpen={mobileMenuOpen}
+        onMenuToggle={() => setMobileMenuOpen((open) => !open)}
+        onLogout={handleLogout}
+      />
 
-          <nav className="hidden md:flex items-center gap-1 ml-8">
-            {items.map(item => (
-              <button
-                key={item.path}
-                onClick={() => navigate(item.path)}
-                className={cn(
-                  'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm transition-colors',
-                  location.pathname === item.path
-                    ? 'bg-primary text-primary-foreground'
-                    : 'text-muted-foreground hover:text-foreground hover:bg-muted'
-                )}
-              >
-                <item.icon className="h-4 w-4" />
-                {item.label}
-              </button>
-            ))}
-          </nav>
+      <div className="flex min-h-[calc(100vh-4rem)]">
+        <aside className="sticky top-16 hidden h-[calc(100vh-4rem)] w-72 shrink-0 border-r border-border/70 bg-background lg:block">
+          <Sidebar role={currentUser.role} />
+        </aside>
 
-          <div className="ml-auto flex items-center gap-2">
-            <button onClick={() => navigate('/notifications')} className="relative rounded-md p-2 hover:bg-muted transition-colors">
-              <Bell className="h-4 w-4 text-muted-foreground" />
-              {unreadCount > 0 && (
-                <span className="absolute -top-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-destructive text-[10px] text-destructive-foreground">
-                  {unreadCount}
-                </span>
-              )}
-            </button>
-            <div className="hidden sm:flex items-center gap-2 ml-2">
-              <div className="h-7 w-7 rounded-full bg-primary flex items-center justify-center text-xs text-primary-foreground font-medium">
-                {currentUser.fullName.split(' ').map(n => n[0]).join('').slice(0, 2)}
-              </div>
-              <span className="text-sm font-medium">{currentUser.fullName}</span>
-            </div>
-            <Button variant="ghost" size="sm" onClick={() => { logout(); navigate('/'); }}>
-              <LogOut className="h-4 w-4" />
-            </Button>
+        {mobileMenuOpen && (
+          <div className="fixed inset-0 top-16 z-40 flex bg-slate-950/20 lg:hidden">
+            <aside className="h-[calc(100vh-4rem)] w-72 border-r border-border/70 bg-background shadow-2xl animate-fade-in">
+              <Sidebar
+                role={currentUser.role}
+                onNavigate={() => setMobileMenuOpen(false)}
+              />
+            </aside>
+            <button
+              type="button"
+              aria-label="Close sidebar"
+              className="flex-1 backdrop-blur-[1px]"
+              onClick={() => setMobileMenuOpen(false)}
+            />
           </div>
-        </div>
-      </header>
+        )}
 
-      {/* Mobile nav */}
-      {mobileMenuOpen && (
-        <div className="fixed inset-0 top-14 z-30 bg-background/95 md:hidden animate-fade-in">
-          <nav className="flex flex-col p-4 gap-1">
-            {items.map(item => (
-              <button
-                key={item.path}
-                onClick={() => { navigate(item.path); setMobileMenuOpen(false); }}
-                className={cn(
-                  'flex items-center gap-2 rounded-md px-3 py-2.5 text-sm transition-colors',
-                  location.pathname === item.path
-                    ? 'bg-primary text-primary-foreground'
-                    : 'text-muted-foreground hover:text-foreground hover:bg-muted'
-                )}
-              >
-                <item.icon className="h-4 w-4" />
-                {item.label}
-              </button>
-            ))}
-          </nav>
-        </div>
-      )}
-
-      <main className="mx-auto max-w-7xl px-4 md:px-6 py-6">{children}</main>
+        <main className="min-w-0 flex-1">
+          <div className="mx-auto w-full max-w-[1320px] px-4 py-8 sm:px-6 lg:px-10">
+            {children}
+          </div>
+        </main>
+      </div>
     </div>
   );
 };

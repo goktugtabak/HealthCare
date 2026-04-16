@@ -1,84 +1,221 @@
-import { useAuth } from '@/contexts/AuthContext';
-import { AppShell } from '@/components/AppShell';
-import { SectionHeader, StatsCard, NotificationItem } from '@/components/SharedComponents';
-import { PostCard } from '@/components/PostCard';
-import { Button } from '@/components/ui/button';
-import { mockPosts, mockNotifications, mockMeetingRequests } from '@/data/mockData';
-import { FileText, Users, Calendar, Bell, Plus } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { AppShell } from "@/components/AppShell";
+import {
+  CompactNotificationItem,
+  CompactPostItem,
+  DashboardEmptyPosts,
+  DashboardPageHeader,
+  DashboardPostPreview,
+  DashboardSectionHeading,
+  DashboardStatsStrip,
+  DashboardSurface,
+} from "@/components/DashboardComponents";
+import { Button } from "@/components/ui/button";
+import { useAuth } from "@/contexts/AuthContext";
+import {
+  mockMeetingRequests,
+  mockNotifications,
+  mockPosts,
+} from "@/data/mockData";
+import { Bell, Calendar, FileText, Plus, Users } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 
 const DashboardPage = () => {
   const { currentUser } = useAuth();
   const navigate = useNavigate();
 
-  if (!currentUser) return null;
+  if (!currentUser) {
+    return null;
+  }
 
-  const myPosts = mockPosts.filter(p => p.ownerId === currentUser.id);
-  const relevantPosts = mockPosts.filter(p => p.ownerId !== currentUser.id && p.status === 'Active');
-  const myNotifications = mockNotifications.filter(n => n.userId === currentUser.id);
-  const upcomingMeetings = mockMeetingRequests.filter(mr => mr.status === 'Scheduled');
+  const myPosts = mockPosts.filter((post) => post.ownerId === currentUser.id);
+  const relevantPosts = mockPosts.filter(
+    (post) => post.ownerId !== currentUser.id && post.status === "Active",
+  );
+  const myNotifications = mockNotifications.filter(
+    (notification) => notification.userId === currentUser.id,
+  );
+  const upcomingMeetings = mockMeetingRequests.filter(
+    (request) =>
+      request.status === "Scheduled" &&
+      (request.requesterId === currentUser.id ||
+        myPosts.some((post) => post.id === request.postId)),
+  );
+
+  const isHealthcareUser = currentUser.role === "healthcare";
+  const firstName = currentUser.fullName.split(" ")[0];
+  const unreadNotifications = myNotifications.filter(
+    (notification) => !notification.read,
+  ).length;
+  const stats = [
+    {
+      label: "My Posts",
+      value: myPosts.length,
+      detail: "Current collaboration listings",
+      icon: FileText,
+    },
+    {
+      label: "Active Posts",
+      value: mockPosts.filter((post) => post.status === "Active").length,
+      detail: "Open opportunities across the platform",
+      icon: Users,
+    },
+    {
+      label: "Upcoming Meetings",
+      value: upcomingMeetings.length,
+      detail: "Confirmed meetings tied to your work",
+      icon: Calendar,
+    },
+    {
+      label: "Notifications",
+      value: unreadNotifications,
+      detail: unreadNotifications === 1 ? "Unread update" : "Unread updates",
+      icon: Bell,
+    },
+  ];
 
   return (
     <AppShell>
-      <div className="animate-fade-in">
-        <div className="mb-8">
-          <h1 className="text-2xl font-semibold">Welcome back, {currentUser.fullName.split(' ')[0]}</h1>
-          <p className="text-sm text-muted-foreground mt-1">Find the right interdisciplinary partner faster.</p>
-        </div>
+      <div className="space-y-8 animate-fade-in">
+        <DashboardPageHeader
+          eyebrow={
+            isHealthcareUser
+              ? "Healthcare Professional Dashboard"
+              : "Collaboration Dashboard"
+          }
+          title={`Welcome back, ${firstName}`}
+          description={
+            isHealthcareUser
+              ? "Review the strongest collaboration opportunities, monitor updates around your posts, and keep promising conversations moving."
+              : "Check active collaboration signals, review high-value opportunities, and keep your current work on track."
+          }
+          action={
+            <Button
+              size="sm"
+              className="rounded-full px-4"
+              onClick={() => navigate("/create-post")}
+            >
+              <Plus className="mr-1 h-4 w-4" />
+              New Post
+            </Button>
+          }
+        />
 
-        {/* Stats */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-          <StatsCard label="My Posts" value={myPosts.length} icon={FileText} />
-          <StatsCard label="Active Posts" value={mockPosts.filter(p => p.status === 'Active').length} icon={Users} />
-          <StatsCard label="Upcoming Meetings" value={upcomingMeetings.length} icon={Calendar} />
-          <StatsCard label="Notifications" value={myNotifications.filter(n => !n.read).length} icon={Bell} />
-        </div>
+        <DashboardStatsStrip items={stats} />
 
-        <div className="grid lg:grid-cols-3 gap-8">
-          {/* Main content */}
-          <div className="lg:col-span-2">
-            <SectionHeader
+        <div className="grid gap-8 xl:grid-cols-[minmax(0,1.65fr)_340px]">
+          <DashboardSurface className="p-6 sm:p-8">
+            <DashboardSectionHeading
               title="Relevant Posts"
-              description="Posts matching your expertise area"
-              action={<Button size="sm" onClick={() => navigate('/create-post')}><Plus className="h-4 w-4 mr-1" /> New Post</Button>}
+              description="A focused snapshot of active opportunities worth reviewing now."
+              action={
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="rounded-full"
+                  onClick={() => navigate("/explore")}
+                >
+                  Explore All
+                </Button>
+              }
+              className="mb-2"
             />
-            <div className="grid gap-4">
-              {relevantPosts.slice(0, 4).map(post => (
-                <PostCard key={post.id} post={post} />
-              ))}
-            </div>
-            <div className="mt-4">
-              <Button variant="outline" className="w-full" onClick={() => navigate('/explore')}>View All Posts</Button>
-            </div>
-          </div>
 
-          {/* Sidebar */}
-          <div className="space-y-6">
-            <div>
-              <SectionHeader title="Notifications" />
-              <div className="space-y-1">
-                {myNotifications.slice(0, 3).map(n => (
-                  <NotificationItem key={n.id} title={n.title} message={n.message} time={new Date(n.createdAt).toLocaleDateString()} read={n.read} />
-                ))}
-              </div>
-              <Button variant="ghost" size="sm" className="w-full mt-2 text-xs" onClick={() => navigate('/notifications')}>
-                View All Notifications
-              </Button>
-            </div>
-
-            {myPosts.length > 0 && (
-              <div>
-                <SectionHeader title="My Posts" />
-                {myPosts.slice(0, 2).map(post => (
-                  <div key={post.id} className="rounded-lg border border-border p-3 mb-2 cursor-pointer hover:bg-muted/50 transition-colors" onClick={() => navigate(`/posts/${post.id}`)}>
-                    <p className="text-sm font-medium truncate">{post.title}</p>
-                    <p className="text-xs text-muted-foreground mt-0.5">{post.status} · {post.workingDomain}</p>
-                  </div>
-                ))}
-                <Button variant="ghost" size="sm" className="w-full text-xs" onClick={() => navigate('/my-posts')}>View All My Posts</Button>
-              </div>
+            {relevantPosts.length > 0 ? (
+              <>
+                <div className="mt-6 divide-y divide-border/60">
+                  {relevantPosts.slice(0, 3).map((post) => (
+                    <DashboardPostPreview key={post.id} post={post} />
+                  ))}
+                </div>
+                <div className="mt-6 flex justify-start">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="rounded-full px-4"
+                    onClick={() => navigate("/explore")}
+                  >
+                    View All Posts
+                  </Button>
+                </div>
+              </>
+            ) : (
+              <DashboardEmptyPosts />
             )}
-          </div>
+          </DashboardSurface>
+
+          <DashboardSurface className="h-fit p-5 sm:p-6 xl:sticky xl:top-24">
+            <DashboardSectionHeading
+              title="Notifications"
+              description={
+                unreadNotifications > 0
+                  ? `${unreadNotifications} unread updates`
+                  : "All caught up"
+              }
+              action={
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="rounded-full"
+                  onClick={() => navigate("/notifications")}
+                >
+                  View All
+                </Button>
+              }
+              className="mb-4"
+            />
+
+            {myNotifications.length > 0 ? (
+              <div className="space-y-1">
+                {myNotifications.slice(0, 3).map((notification) => (
+                  <CompactNotificationItem
+                    key={notification.id}
+                    notification={notification}
+                    onClick={() => navigate("/notifications")}
+                  />
+                ))}
+              </div>
+            ) : (
+              <p className="px-3 py-2 text-sm text-muted-foreground">
+                No notifications yet.
+              </p>
+            )}
+
+            <div className="my-6 h-px bg-border/60" />
+
+            <DashboardSectionHeading
+              title="My Posts"
+              description={
+                myPosts.length > 0
+                  ? `${myPosts.length} post${myPosts.length === 1 ? "" : "s"} in progress`
+                  : "No posts created yet"
+              }
+              action={
+                myPosts.length > 0 ? (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="rounded-full"
+                    onClick={() => navigate("/my-posts")}
+                  >
+                    View All
+                  </Button>
+                ) : undefined
+              }
+              className="mb-4"
+            />
+
+            {myPosts.length > 0 ? (
+              <div className="space-y-1">
+                {myPosts.slice(0, 3).map((post) => (
+                  <CompactPostItem key={post.id} post={post} />
+                ))}
+              </div>
+            ) : (
+              <p className="px-3 py-2 text-sm text-muted-foreground">
+                Create your first post to start attracting collaborators.
+              </p>
+            )}
+          </DashboardSurface>
         </div>
       </div>
     </AppShell>
