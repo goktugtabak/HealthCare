@@ -1,39 +1,78 @@
-import { useState } from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
-import { Button } from '@/components/ui/button';
-import { Textarea } from '@/components/ui/textarea';
-import { Checkbox } from '@/components/ui/checkbox';
-import { Label } from '@/components/ui/label';
-import { Input } from '@/components/ui/input';
-import { toast } from '@/hooks/use-toast';
-import { Shield, Plus, X } from 'lucide-react';
+import { useState } from "react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
+import { toast } from "@/hooks/use-toast";
+import { Shield, Plus, X } from "lucide-react";
 
-export const MeetingRequestModal = ({ open, onOpenChange, postTitle }: {
+interface MeetingRequestModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   postTitle: string;
-}) => {
-  const [message, setMessage] = useState('');
+  onSubmit: (payload: {
+    message: string;
+    ndaAccepted: boolean;
+    proposedSlots: string[];
+  }) => void;
+}
+
+export const MeetingRequestModal = ({
+  open,
+  onOpenChange,
+  postTitle,
+  onSubmit,
+}: MeetingRequestModalProps) => {
+  const [message, setMessage] = useState("");
   const [ndaAccepted, setNdaAccepted] = useState(false);
-  const [slots, setSlots] = useState<string[]>(['']);
+  const [slots, setSlots] = useState<string[]>([""]);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
-  const addSlot = () => setSlots(s => [...s, '']);
-  const removeSlot = (i: number) => setSlots(s => s.filter((_, idx) => idx !== i));
-  const updateSlot = (i: number, v: string) => setSlots(s => s.map((sl, idx) => idx === i ? v : sl));
+  const addSlot = () => setSlots((currentSlots) => [...currentSlots, ""]);
+  const removeSlot = (index: number) =>
+    setSlots((currentSlots) => currentSlots.filter((_, slotIndex) => slotIndex !== index));
+  const updateSlot = (index: number, value: string) =>
+    setSlots((currentSlots) =>
+      currentSlots.map((slot, slotIndex) => (slotIndex === index ? value : slot)),
+    );
 
   const handleSubmit = () => {
-    const e: Record<string, string> = {};
-    if (!message.trim()) e.message = 'Please write an introductory message';
-    if (!ndaAccepted) e.nda = 'You must accept the NDA terms';
-    if (slots.filter(s => s).length === 0) e.slots = 'Please propose at least one time slot';
-    setErrors(e);
-    if (Object.keys(e).length > 0) return;
+    const nextErrors: Record<string, string> = {};
+    const cleanSlots = slots.map((slot) => slot.trim()).filter(Boolean);
 
-    toast({ title: 'Meeting request sent', description: `Your request for "${postTitle}" has been submitted.` });
-    setMessage('');
+    if (!message.trim()) nextErrors.message = "Please write an introductory message";
+    if (!ndaAccepted) nextErrors.nda = "You must accept the confidentiality terms";
+    if (cleanSlots.length === 0) nextErrors.slots = "Please propose at least one time slot";
+
+    setErrors(nextErrors);
+
+    if (Object.keys(nextErrors).length > 0) {
+      return;
+    }
+
+    onSubmit({
+      message: message.trim(),
+      ndaAccepted,
+      proposedSlots: cleanSlots,
+    });
+
+    toast({
+      title: "Request sent",
+      description: `Your first-contact request for "${postTitle}" has been sent.`,
+    });
+
+    setMessage("");
     setNdaAccepted(false);
-    setSlots(['']);
+    setSlots([""]);
     onOpenChange(false);
   };
 
@@ -41,54 +80,85 @@ export const MeetingRequestModal = ({ open, onOpenChange, postTitle }: {
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Request a Meeting</DialogTitle>
-          <DialogDescription>For: {postTitle}</DialogDescription>
+          <DialogTitle>Request a first meeting</DialogTitle>
+          <DialogDescription>
+            For: {postTitle}. Keep this high-level and use it to agree on the first external
+            conversation.
+          </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 py-2">
           <div>
-            <Label className="text-sm font-medium">Introductory Message</Label>
-            <Textarea value={message} onChange={e => setMessage(e.target.value)} placeholder="Introduce yourself and explain your interest..." className="mt-1" rows={4} />
-            {errors.message && <p className="text-xs text-destructive mt-1">{errors.message}</p>}
+            <Label className="text-sm font-medium">Introductory message</Label>
+            <Textarea
+              value={message}
+              onChange={(event) => setMessage(event.target.value)}
+              placeholder="Introduce yourself, explain why there is a fit, and frame the first external conversation."
+              className="mt-1"
+              rows={4}
+            />
+            {errors.message && (
+              <p className="mt-1 text-xs text-destructive">{errors.message}</p>
+            )}
           </div>
 
-          <div className="rounded-lg border border-border p-4 bg-muted/30">
-            <div className="flex items-start gap-2 mb-3">
-              <Shield className="h-4 w-4 text-primary mt-0.5" />
+          <div className="rounded-lg border border-border bg-muted/30 p-4">
+            <div className="mb-3 flex items-start gap-2">
+              <Shield className="mt-0.5 h-4 w-4 text-primary" />
               <div>
-                <p className="text-sm font-medium">Non-Disclosure Agreement</p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  By accepting, you agree to keep all information shared during the meeting confidential. 
-                  You will not disclose project details, ideas, or data to third parties without written consent.
+                <p className="text-sm font-medium">Confidentiality acknowledgement</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  You are agreeing to keep shared ideas confidential and to move sensitive
+                  discussion off-platform. This app does not host files or detailed project assets.
                 </p>
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <Checkbox id="nda" checked={ndaAccepted} onCheckedChange={c => setNdaAccepted(!!c)} />
-              <Label htmlFor="nda" className="text-xs">I accept the NDA terms</Label>
+              <Checkbox
+                id="nda"
+                checked={ndaAccepted}
+                onCheckedChange={(checked) => setNdaAccepted(!!checked)}
+              />
+              <Label htmlFor="nda" className="text-xs">
+                I agree to keep details confidential and continue sensitive discussion externally
+              </Label>
             </div>
-            {errors.nda && <p className="text-xs text-destructive mt-1">{errors.nda}</p>}
+            {errors.nda && <p className="mt-1 text-xs text-destructive">{errors.nda}</p>}
           </div>
 
           <div>
-            <Label className="text-sm font-medium">Proposed Time Slots</Label>
-            <p className="text-xs text-muted-foreground mb-2">Suggest times for an external meeting.</p>
-            {slots.map((slot, i) => (
-              <div key={i} className="flex gap-2 mb-2">
-                <Input type="datetime-local" value={slot} onChange={e => updateSlot(i, e.target.value)} className="flex-1" />
+            <Label className="text-sm font-medium">Proposed time slots</Label>
+            <p className="mb-2 text-xs text-muted-foreground">
+              Offer one or more times for the first off-platform meeting.
+            </p>
+            {slots.map((slot, index) => (
+              <div key={index} className="mb-2 flex gap-2">
+                <Input
+                  type="datetime-local"
+                  value={slot}
+                  onChange={(event) => updateSlot(index, event.target.value)}
+                  className="flex-1"
+                />
                 {slots.length > 1 && (
-                  <Button variant="ghost" size="sm" onClick={() => removeSlot(i)}><X className="h-4 w-4" /></Button>
+                  <Button variant="ghost" size="sm" onClick={() => removeSlot(index)}>
+                    <X className="h-4 w-4" />
+                  </Button>
                 )}
               </div>
             ))}
-            <Button variant="outline" size="sm" onClick={addSlot}><Plus className="h-3 w-3 mr-1" /> Add Slot</Button>
-            {errors.slots && <p className="text-xs text-destructive mt-1">{errors.slots}</p>}
+            <Button variant="outline" size="sm" onClick={addSlot}>
+              <Plus className="mr-1 h-3 w-3" />
+              Add slot
+            </Button>
+            {errors.slots && <p className="mt-1 text-xs text-destructive">{errors.slots}</p>}
           </div>
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button onClick={handleSubmit}>Send Request</Button>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button onClick={handleSubmit}>Send request</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

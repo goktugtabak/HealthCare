@@ -1,7 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/SharedComponents";
 import { StatusBadge } from "@/components/StatusBadge";
-import { mockUsers } from "@/data/mockData";
+import { usePlatformData } from "@/contexts/PlatformDataContext";
 import type { Notification, Post, Role } from "@/data/types";
 import { cn } from "@/lib/utils";
 import type { LucideIcon } from "lucide-react";
@@ -143,7 +143,8 @@ export const DashboardSectionHeading = ({
 
 export const DashboardPostPreview = ({ post }: { post: Post }) => {
   const navigate = useNavigate();
-  const owner = mockUsers.find((user) => user.id === post.ownerId);
+  const { users } = usePlatformData();
+  const owner = users.find((user) => user.id === post.ownerId);
 
   return (
     <article className="-mx-2 rounded-3xl px-2 py-5 transition-colors hover:bg-muted/35">

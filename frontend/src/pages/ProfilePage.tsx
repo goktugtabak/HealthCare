@@ -1,107 +1,450 @@
-import { useState } from 'react';
-import { AppShell } from '@/components/AppShell';
-import { SectionHeader } from '@/components/SharedComponents';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
-import { Label } from '@/components/ui/label';
-import { RoleBadge } from '@/components/RoleBadge';
-import { ConfirmationModal } from '@/components/ConfirmationModal';
-import { useAuth } from '@/contexts/AuthContext';
-import { toast } from '@/hooks/use-toast';
-import { Download, Trash2 } from 'lucide-react';
+import { useEffect, useState } from "react";
+import { AppShell } from "@/components/AppShell";
+import { SectionHeader } from "@/components/SharedComponents";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import { RoleBadge } from "@/components/RoleBadge";
+import { ConfirmationModal } from "@/components/ConfirmationModal";
+import { useAuth } from "@/contexts/AuthContext";
+import { toast } from "@/hooks/use-toast";
+import { domainOptions, expertiseOptions } from "@/data/mockData";
+import { Download, Trash2 } from "lucide-react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
+
+const contactMethods = ["Email", "Phone", "LinkedIn", "Other"] as const;
 
 const ProfilePage = () => {
-  const { currentUser } = useAuth();
+  const { currentUser, updateCurrentUserProfile } = useAuth();
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState({
-    fullName: currentUser?.fullName || '',
-    institution: currentUser?.institution || '',
-    city: currentUser?.city || '',
-    country: currentUser?.country || '',
-    bio: currentUser?.bio || '',
+    fullName: currentUser?.fullName ?? "",
+    institution: currentUser?.institution ?? "",
+    city: currentUser?.city ?? "",
+    country: currentUser?.country ?? "",
+    bio: currentUser?.bio ?? "",
+    interestTags: currentUser?.interestTags ?? [],
+    expertiseTags: currentUser?.expertiseTags ?? [],
+    portfolioSummary: currentUser?.portfolioSummary ?? "",
+    portfolioLinks: currentUser?.portfolioLinks.join("\n") ?? "",
+    preferredContactMethod: currentUser?.preferredContact?.method ?? "Email",
+    preferredContactValue: currentUser?.preferredContact?.value ?? currentUser?.email ?? "",
+    inAppNotifications: currentUser?.notificationPreferences.inApp ?? true,
+    emailNotifications: currentUser?.notificationPreferences.email ?? false,
   });
+
+  useEffect(() => {
+    if (!currentUser || editing) {
+      return;
+    }
+
+    setForm({
+      fullName: currentUser.fullName,
+      institution: currentUser.institution,
+      city: currentUser.city,
+      country: currentUser.country,
+      bio: currentUser.bio ?? "",
+      interestTags: currentUser.interestTags,
+      expertiseTags: currentUser.expertiseTags,
+      portfolioSummary: currentUser.portfolioSummary ?? "",
+      portfolioLinks: currentUser.portfolioLinks.join("\n"),
+      preferredContactMethod: currentUser.preferredContact?.method ?? "Email",
+      preferredContactValue: currentUser.preferredContact?.value ?? currentUser.email,
+      inAppNotifications: currentUser.notificationPreferences.inApp,
+      emailNotifications: currentUser.notificationPreferences.email,
+    });
+  }, [currentUser, editing]);
 
   if (!currentUser) return null;
 
+  const toggleTag = (value: string, key: "interestTags" | "expertiseTags") =>
+    setForm((currentForm) => ({
+      ...currentForm,
+      [key]: currentForm[key].includes(value)
+        ? currentForm[key].filter((item) => item !== value)
+        : [...currentForm[key], value],
+    }));
+
   const handleSave = () => {
+    updateCurrentUserProfile({
+      fullName: form.fullName,
+      institution: form.institution,
+      city: form.city,
+      country: form.country,
+      bio: form.bio,
+      interestTags: currentUser.role === "healthcare" ? form.interestTags : currentUser.interestTags,
+      expertiseTags: currentUser.role === "engineer" ? form.expertiseTags : currentUser.expertiseTags,
+      portfolioSummary: currentUser.role === "engineer" ? form.portfolioSummary : "",
+      portfolioLinks:
+        currentUser.role === "engineer"
+          ? form.portfolioLinks
+              .split("\n")
+              .map((item) => item.trim())
+              .filter(Boolean)
+          : [],
+      preferredContact: {
+        method: form.preferredContactMethod as "Email" | "Phone" | "LinkedIn" | "Other",
+        value: form.preferredContactValue,
+      },
+      notificationPreferences: {
+        inApp: form.inAppNotifications,
+        email: form.emailNotifications,
+      },
+    });
     setEditing(false);
-    toast({ title: 'Profile updated', description: 'Your changes have been saved.' });
+    toast({ title: "Profile updated", description: "Your changes have been saved." });
   };
+
+  const tagOptions =
+    currentUser.role === "healthcare"
+      ? [...new Set([...domainOptions, ...expertiseOptions])]
+      : expertiseOptions;
 
   return (
     <AppShell>
-      <SectionHeader title="Profile" />
+      <SectionHeader
+        title="Profile"
+        description="This is your long-term profile hub for matching, external handoff, and notification preferences."
+      />
 
-      <div className="max-w-2xl space-y-6 animate-fade-in">
-        {/* Avatar & Role */}
-        <div className="rounded-lg border border-border bg-card p-6 flex items-center gap-4">
-          <div className="h-16 w-16 rounded-full bg-primary flex items-center justify-center text-xl text-primary-foreground font-semibold">
-            {currentUser.fullName.split(' ').map(n => n[0]).join('').slice(0, 2)}
+      <div className="max-w-3xl space-y-6 animate-fade-in">
+        <div className="flex items-center gap-4 rounded-[28px] border border-border bg-card p-6">
+          <div className="flex h-16 w-16 items-center justify-center rounded-full bg-primary text-xl font-semibold text-primary-foreground">
+            {currentUser.fullName
+              .split(" ")
+              .map((name) => name[0])
+              .join("")
+              .slice(0, 2)}
           </div>
           <div>
             <h2 className="text-lg font-semibold">{currentUser.fullName}</h2>
             <p className="text-sm text-muted-foreground">{currentUser.email}</p>
             <RoleBadge role={currentUser.role} className="mt-1" />
           </div>
-          <div className="ml-auto">
-            <div className="text-right">
-              <p className="text-2xl font-semibold">{currentUser.profileCompleteness}%</p>
-              <p className="text-xs text-muted-foreground">Profile Complete</p>
-            </div>
+          <div className="ml-auto text-right">
+            <p className="text-2xl font-semibold">{currentUser.profileCompleteness}%</p>
+            <p className="text-xs text-muted-foreground">Profile complete</p>
           </div>
         </div>
 
-        {/* Info */}
-        <div className="rounded-lg border border-border bg-card p-6 space-y-4">
+        <div className="space-y-4 rounded-[28px] border border-border bg-card p-6">
           <div className="flex items-center justify-between">
-            <h3 className="text-base font-semibold">Personal Information</h3>
-            {!editing && <Button variant="outline" size="sm" onClick={() => setEditing(true)}>Edit</Button>}
+            <h3 className="text-base font-semibold">Profile details</h3>
+            {!editing && (
+              <Button variant="outline" size="sm" onClick={() => setEditing(true)}>
+                Edit
+              </Button>
+            )}
           </div>
+
           {editing ? (
             <>
-              <div className="grid grid-cols-2 gap-4">
-                <div><Label className="text-sm">Full Name</Label><Input value={form.fullName} onChange={e => setForm(f => ({ ...f, fullName: e.target.value }))} /></div>
-                <div><Label className="text-sm">Institution</Label><Input value={form.institution} onChange={e => setForm(f => ({ ...f, institution: e.target.value }))} /></div>
-                <div><Label className="text-sm">City</Label><Input value={form.city} onChange={e => setForm(f => ({ ...f, city: e.target.value }))} /></div>
-                <div><Label className="text-sm">Country</Label><Input value={form.country} onChange={e => setForm(f => ({ ...f, country: e.target.value }))} /></div>
+              <div className="grid gap-4 md:grid-cols-2">
+                <div>
+                  <Label className="text-sm">Full name</Label>
+                  <Input
+                    value={form.fullName}
+                    onChange={(event) =>
+                      setForm((currentForm) => ({ ...currentForm, fullName: event.target.value }))
+                    }
+                    className="mt-1"
+                  />
+                </div>
+                <div>
+                  <Label className="text-sm">Institution</Label>
+                  <Input
+                    value={form.institution}
+                    onChange={(event) =>
+                      setForm((currentForm) => ({
+                        ...currentForm,
+                        institution: event.target.value,
+                      }))
+                    }
+                    className="mt-1"
+                  />
+                </div>
+                <div>
+                  <Label className="text-sm">City</Label>
+                  <Input
+                    value={form.city}
+                    onChange={(event) =>
+                      setForm((currentForm) => ({ ...currentForm, city: event.target.value }))
+                    }
+                    className="mt-1"
+                  />
+                </div>
+                <div>
+                  <Label className="text-sm">Country</Label>
+                  <Input
+                    value={form.country}
+                    onChange={(event) =>
+                      setForm((currentForm) => ({ ...currentForm, country: event.target.value }))
+                    }
+                    className="mt-1"
+                  />
+                </div>
               </div>
-              <div><Label className="text-sm">Bio</Label><Textarea value={form.bio} onChange={e => setForm(f => ({ ...f, bio: e.target.value }))} rows={3} /></div>
-              <div className="flex gap-2 justify-end">
-                <Button variant="outline" size="sm" onClick={() => setEditing(false)}>Cancel</Button>
-                <Button size="sm" onClick={handleSave}>Save Changes</Button>
+
+              <div>
+                <Label className="text-sm">Short bio</Label>
+                <Textarea
+                  value={form.bio}
+                  onChange={(event) =>
+                    setForm((currentForm) => ({ ...currentForm, bio: event.target.value }))
+                  }
+                  rows={3}
+                  className="mt-1"
+                />
+              </div>
+
+              <div>
+                <Label className="text-sm">Preferred external contact</Label>
+                <div className="mt-1 grid gap-3 sm:grid-cols-[180px_minmax(0,1fr)]">
+                  <Select
+                    value={form.preferredContactMethod}
+                    onValueChange={(value) =>
+                      setForm((currentForm) => ({
+                        ...currentForm,
+                        preferredContactMethod: value,
+                      }))
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Contact method" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {contactMethods.map((method) => (
+                        <SelectItem key={method} value={method}>
+                          {method}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Input
+                    value={form.preferredContactValue}
+                    onChange={(event) =>
+                      setForm((currentForm) => ({
+                        ...currentForm,
+                        preferredContactValue: event.target.value,
+                      }))
+                    }
+                  />
+                </div>
+              </div>
+
+              <div>
+                <Label className="text-sm">
+                  {currentUser.role === "healthcare" ? "Interest tags" : "Expertise tags"}
+                </Label>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {tagOptions.map((tag) => {
+                    const isSelected =
+                      currentUser.role === "healthcare"
+                        ? form.interestTags.includes(tag)
+                        : form.expertiseTags.includes(tag);
+
+                    return (
+                      <button
+                        key={tag}
+                        type="button"
+                        onClick={() =>
+                          toggleTag(tag, currentUser.role === "healthcare" ? "interestTags" : "expertiseTags")
+                        }
+                        className={`rounded-full border px-3 py-1.5 text-xs transition-colors ${
+                          isSelected
+                            ? "border-primary bg-primary text-primary-foreground"
+                            : "border-border bg-background text-muted-foreground hover:bg-muted"
+                        }`}
+                      >
+                        {tag}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {currentUser.role === "engineer" && (
+                <div className="grid gap-4 lg:grid-cols-2">
+                  <div>
+                    <Label className="text-sm">Portfolio summary</Label>
+                    <Textarea
+                      value={form.portfolioSummary}
+                      onChange={(event) =>
+                        setForm((currentForm) => ({
+                          ...currentForm,
+                          portfolioSummary: event.target.value,
+                        }))
+                      }
+                      rows={4}
+                      className="mt-1"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-sm">Portfolio links</Label>
+                    <Textarea
+                      value={form.portfolioLinks}
+                      onChange={(event) =>
+                        setForm((currentForm) => ({
+                          ...currentForm,
+                          portfolioLinks: event.target.value,
+                        }))
+                      }
+                      rows={4}
+                      className="mt-1"
+                    />
+                    <p className="mt-1 text-xs text-muted-foreground">One link per line.</p>
+                  </div>
+                </div>
+              )}
+
+              <div className="space-y-3 rounded-2xl border border-border/70 bg-muted/30 p-4">
+                <div className="flex items-center gap-3">
+                  <Checkbox
+                    id="in-app-notifs"
+                    checked={form.inAppNotifications}
+                    onCheckedChange={(checked) =>
+                      setForm((currentForm) => ({
+                        ...currentForm,
+                        inAppNotifications: !!checked,
+                      }))
+                    }
+                  />
+                  <Label htmlFor="in-app-notifs" className="text-sm">
+                    Enable in-app notifications
+                  </Label>
+                </div>
+                <div className="flex items-start gap-3">
+                  <Checkbox
+                    id="email-notifs"
+                    checked={form.emailNotifications}
+                    onCheckedChange={(checked) =>
+                      setForm((currentForm) => ({
+                        ...currentForm,
+                        emailNotifications: !!checked,
+                      }))
+                    }
+                    className="mt-0.5"
+                  />
+                  <div>
+                    <Label htmlFor="email-notifs" className="text-sm">
+                      Enable email notifications
+                    </Label>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Email delivery is currently a planned/mock preference until backend support is
+                      added.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" size="sm" onClick={() => setEditing(false)}>
+                  Cancel
+                </Button>
+                <Button size="sm" onClick={handleSave}>
+                  Save Changes
+                </Button>
               </div>
             </>
           ) : (
-            <div className="space-y-2 text-sm">
-              <div className="flex justify-between py-1.5 border-b border-border"><span className="text-muted-foreground">Institution</span><span>{currentUser.institution}</span></div>
-              <div className="flex justify-between py-1.5 border-b border-border"><span className="text-muted-foreground">City</span><span>{currentUser.city}</span></div>
-              <div className="flex justify-between py-1.5 border-b border-border"><span className="text-muted-foreground">Country</span><span>{currentUser.country}</span></div>
-              {currentUser.bio && <div className="pt-2"><span className="text-muted-foreground">Bio</span><p className="mt-1">{currentUser.bio}</p></div>}
+            <div className="space-y-3 text-sm">
+              <div className="flex justify-between border-b border-border py-1.5">
+                <span className="text-muted-foreground">Institution</span>
+                <span>{currentUser.institution}</span>
+              </div>
+              <div className="flex justify-between border-b border-border py-1.5">
+                <span className="text-muted-foreground">City</span>
+                <span>{currentUser.city}</span>
+              </div>
+              <div className="flex justify-between border-b border-border py-1.5">
+                <span className="text-muted-foreground">Country</span>
+                <span>{currentUser.country}</span>
+              </div>
+              <div className="flex justify-between border-b border-border py-1.5">
+                <span className="text-muted-foreground">Preferred contact</span>
+                <span>
+                  {currentUser.preferredContact?.method}: {currentUser.preferredContact?.value}
+                </span>
+              </div>
+              {currentUser.bio && (
+                <div className="pt-2">
+                  <span className="text-muted-foreground">Bio</span>
+                  <p className="mt-1">{currentUser.bio}</p>
+                </div>
+              )}
             </div>
           )}
         </div>
 
-        {/* Expertise */}
-        <div className="rounded-lg border border-border bg-card p-6">
-          <h3 className="text-base font-semibold mb-3">Expertise Tags</h3>
+        <div className="rounded-[28px] border border-border bg-card p-6">
+          <h3 className="mb-3 text-base font-semibold">
+            {currentUser.role === "healthcare" ? "Interest tags" : "Expertise and portfolio"}
+          </h3>
           <div className="flex flex-wrap gap-2">
-            {currentUser.expertiseTags.map(tag => (
-              <span key={tag} className="rounded-md bg-secondary px-2.5 py-1 text-sm text-secondary-foreground">{tag}</span>
-            ))}
+            {(currentUser.role === "healthcare" ? currentUser.interestTags : currentUser.expertiseTags).map(
+              (tag) => (
+                <span
+                  key={tag}
+                  className="rounded-full bg-secondary px-3 py-1 text-sm text-secondary-foreground"
+                >
+                  {tag}
+                </span>
+              ),
+            )}
           </div>
+          {currentUser.role === "engineer" && currentUser.portfolioSummary && (
+            <div className="mt-4 space-y-3">
+              <p className="text-sm text-muted-foreground">{currentUser.portfolioSummary}</p>
+              {currentUser.portfolioLinks.length > 0 && (
+                <div className="space-y-1">
+                  {currentUser.portfolioLinks.map((link) => (
+                    <p key={link} className="text-sm text-primary">
+                      {link}
+                    </p>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
-        {/* Data & Privacy */}
-        <div className="rounded-lg border border-border bg-card p-6 space-y-3">
-          <h3 className="text-base font-semibold">Data & Privacy</h3>
-          <Button variant="outline" size="sm" onClick={() => toast({ title: 'Data export started', description: 'Your data file will be ready shortly.' })}>
-            <Download className="h-4 w-4 mr-1" /> Export My Data
+        <div className="space-y-3 rounded-[28px] border border-border bg-card p-6">
+          <h3 className="text-base font-semibold">Data and privacy</h3>
+          <p className="text-sm text-muted-foreground">
+            The platform keeps discovery and first contact lightweight. Detailed project exchange
+            and external follow-up remain outside the product.
+          </p>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() =>
+              toast({
+                title: "Data export started",
+                description: "Your data file will be ready shortly.",
+              })
+            }
+          >
+            <Download className="mr-1 h-4 w-4" />
+            Export My Data
           </Button>
           <div>
-            <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={() => setDeleteModalOpen(true)}>
-              <Trash2 className="h-4 w-4 mr-1" /> Delete Account
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-destructive hover:text-destructive"
+              onClick={() => setDeleteModalOpen(true)}
+            >
+              <Trash2 className="mr-1 h-4 w-4" />
+              Delete Account
             </Button>
           </div>
         </div>
@@ -114,7 +457,12 @@ const ProfilePage = () => {
         description="This action is irreversible. All your data, posts, and meeting history will be permanently deleted. Are you sure you want to proceed?"
         confirmLabel="Delete My Account"
         destructive
-        onConfirm={() => toast({ title: 'Account deletion requested', description: 'Your request has been submitted. (Mock action)' })}
+        onConfirm={() =>
+          toast({
+            title: "Account deletion requested",
+            description: "Your request has been submitted. (Mock action)",
+          })
+        }
       />
     </AppShell>
   );

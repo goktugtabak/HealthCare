@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { mockNotifications } from "@/data/mockData";
 import { useAuth } from "@/contexts/AuthContext";
+import { usePlatformData } from "@/contexts/PlatformDataContext";
 import { Sidebar } from "@/components/Sidebar";
 import { TopNav } from "@/components/TopNav";
 
 export const AppShell = ({ children }: { children: React.ReactNode }) => {
   const { currentUser, logout } = useAuth();
+  const { notifications } = usePlatformData();
   const navigate = useNavigate();
   const location = useLocation();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -19,7 +20,7 @@ export const AppShell = ({ children }: { children: React.ReactNode }) => {
     return null;
   }
 
-  const unreadCount = mockNotifications.filter(
+  const unreadCount = notifications.filter(
     (notification) =>
       notification.userId === currentUser.id && !notification.read,
   ).length;

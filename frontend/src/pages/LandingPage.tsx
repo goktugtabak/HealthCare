@@ -85,13 +85,13 @@ const LandingPage = () => {
           <h2 className="text-2xl font-semibold mb-3">Built on Trust & Privacy</h2>
           <p className="text-sm text-muted-foreground max-w-xl mx-auto mb-4">
             This platform facilitates first contact only. No patient data should be uploaded or shared. 
-            Share only what is needed. Discuss sensitive details during the meeting.
+            Share only what is needed. Discuss sensitive details during the meeting and continue externally after the intro call.
           </p>
           <div className="flex flex-wrap justify-center gap-4 text-xs text-muted-foreground">
             <span className="rounded-full border border-border px-3 py-1">GDPR Compliant</span>
             <span className="rounded-full border border-border px-3 py-1">No Patient Data</span>
             <span className="rounded-full border border-border px-3 py-1">NDA Workflow</span>
-            <span className="rounded-full border border-border px-3 py-1">Institutional Verification</span>
+            <span className="rounded-full border border-border px-3 py-1">Institutional Trust Signal</span>
           </div>
         </div>
       </section>

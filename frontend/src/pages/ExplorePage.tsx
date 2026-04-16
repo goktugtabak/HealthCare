@@ -1,63 +1,120 @@
-import { useState, useMemo } from 'react';
-import { AppShell } from '@/components/AppShell';
-import { PostCard } from '@/components/PostCard';
-import { SearchInput, FilterSelect, FilterPanel } from '@/components/FilterComponents';
-import { SectionHeader } from '@/components/SharedComponents';
-import { mockPosts } from '@/data/mockData';
-import { domainOptions, stageOptions } from '@/data/mockData';
-import { useAuth } from '@/contexts/AuthContext';
+import { useMemo, useState } from "react";
+import { AppShell } from "@/components/AppShell";
+import { PostCard } from "@/components/PostCard";
+import { SearchInput, FilterSelect } from "@/components/FilterComponents";
+import { SectionHeader } from "@/components/SharedComponents";
+import { useAuth } from "@/contexts/AuthContext";
+import { usePlatformData } from "@/contexts/PlatformDataContext";
+import { domainOptions } from "@/data/mockData";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
 
 const ExplorePage = () => {
   const { currentUser } = useAuth();
-  const [search, setSearch] = useState('');
-  const [filters, setFilters] = useState({ domain: 'all', stage: 'all', city: 'all', status: 'all', country: 'all' });
+  const { posts } = usePlatformData();
+  const [search, setSearch] = useState("");
+  const [domain, setDomain] = useState("all");
+  const [relevantOnly, setRelevantOnly] = useState(false);
 
-  const cities = [...new Set(mockPosts.map(p => p.city))];
-  const countries = [...new Set(mockPosts.map(p => p.country))];
+  if (!currentUser) {
+    return null;
+  }
 
-  const filtered = useMemo(() => {
-    return mockPosts.filter(p => {
-      if (search && !p.title.toLowerCase().includes(search.toLowerCase()) && !p.shortExplanation.toLowerCase().includes(search.toLowerCase())) return false;
-      if (filters.domain !== 'all' && p.workingDomain !== filters.domain) return false;
-      if (filters.stage !== 'all' && p.projectStage !== filters.stage) return false;
-      if (filters.city !== 'all' && p.city !== filters.city) return false;
-      if (filters.country !== 'all' && p.country !== filters.country) return false;
-      if (filters.status !== 'all' && p.status !== filters.status) return false;
+  const interestSource =
+    currentUser.role === "healthcare" ? currentUser.interestTags : currentUser.expertiseTags;
+
+  const filteredPosts = useMemo(() => {
+    const activePosts = posts
+      .filter((post) => post.status === "Active" && post.ownerId !== currentUser.id)
+      .sort(
+        (leftPost, rightPost) =>
+          new Date(rightPost.createdAt).getTime() - new Date(leftPost.createdAt).getTime(),
+      );
+
+    return activePosts.filter((post) => {
+      const haystack = [post.title, post.shortExplanation, post.workingDomain]
+        .join(" ")
+        .toLowerCase();
+      const relatedTags = [post.workingDomain, ...post.requiredExpertise, ...post.matchTags].map(
+        (tag) => tag.toLowerCase(),
+      );
+      const isRelevant = interestSource.some((tag) => relatedTags.includes(tag.toLowerCase()));
+
+      if (search && !haystack.includes(search.toLowerCase())) return false;
+      if (domain !== "all" && post.workingDomain !== domain) return false;
+      if (relevantOnly && !isRelevant) return false;
+
       return true;
     });
-  }, [search, filters]);
-
-  const clearFilters = () => setFilters({ domain: 'all', stage: 'all', city: 'all', status: 'all', country: 'all' });
+  }, [currentUser.id, domain, interestSource, posts, relevantOnly, search]);
 
   return (
     <AppShell>
-      <SectionHeader title="Explore Posts" description="Discover collaboration opportunities across healthcare innovation." />
+      <SectionHeader
+        title="Explore posts"
+        description="Newest-first discovery with light filtering and profile-aware highlights."
+      />
 
-      <div className="mb-4">
-        <SearchInput value={search} onChange={setSearch} placeholder="Search by title or description..." />
+      <div className="mb-6 grid gap-4 rounded-[28px] border border-border bg-card p-4 lg:grid-cols-[minmax(0,1fr)_220px_auto] lg:items-end">
+        <SearchInput
+          value={search}
+          onChange={setSearch}
+          placeholder="Search by title, domain, or summary..."
+        />
+        <FilterSelect label="Domain" value={domain} onChange={setDomain} options={domainOptions} />
+        <div className="flex h-9 items-center gap-2 rounded-xl border border-border px-3">
+          <Checkbox
+            id="relevantOnly"
+            checked={relevantOnly}
+            onCheckedChange={(checked) => setRelevantOnly(!!checked)}
+          />
+          <Label htmlFor="relevantOnly" className="text-sm text-muted-foreground">
+            Relevant to me
+          </Label>
+        </div>
       </div>
 
-      <FilterPanel filters={filters} onClear={clearFilters}>
-        <FilterSelect label="Domain" value={filters.domain} onChange={v => setFilters(f => ({ ...f, domain: v }))} options={domainOptions} />
-        <FilterSelect label="Stage" value={filters.stage} onChange={v => setFilters(f => ({ ...f, stage: v }))} options={stageOptions} />
-        <FilterSelect label="City" value={filters.city} onChange={v => setFilters(f => ({ ...f, city: v }))} options={cities} />
-        <FilterSelect label="Country" value={filters.country} onChange={v => setFilters(f => ({ ...f, country: v }))} options={countries} />
-        <FilterSelect label="Status" value={filters.status} onChange={v => setFilters(f => ({ ...f, status: v }))} options={['Draft', 'Active', 'Meeting Scheduled', 'Partner Found', 'Expired']} />
-      </FilterPanel>
+      {interestSource.length > 0 && (
+        <div className="mb-4 flex flex-wrap gap-2">
+          {interestSource.slice(0, 8).map((tag) => (
+            <span
+              key={tag}
+              className="rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary"
+            >
+              {tag}
+            </span>
+          ))}
+        </div>
+      )}
 
-      <p className="text-sm text-muted-foreground mb-4">{filtered.length} post{filtered.length !== 1 ? 's' : ''} found</p>
+      <p className="mb-4 text-sm text-muted-foreground">
+        {filteredPosts.length} post{filteredPosts.length !== 1 ? "s" : ""} found, sorted by newest
+        first
+      </p>
 
-      <div className="grid md:grid-cols-2 gap-4">
-        {filtered.map(post => {
-          const cityMatch = currentUser && post.city === currentUser.city;
+      <div className="grid gap-4 md:grid-cols-2">
+        {filteredPosts.map((post) => {
+          const relatedTags = [post.workingDomain, ...post.requiredExpertise, ...post.matchTags].map(
+            (tag) => tag.toLowerCase(),
+          );
+          const isRelevant = interestSource.some((tag) => relatedTags.includes(tag.toLowerCase()));
+
           return (
-            <div key={post.id} className={cityMatch ? 'ring-2 ring-accent/30 rounded-lg' : ''}>
-              {cityMatch && <p className="text-xs text-accent font-medium px-2 pt-1">📍 Same city as you</p>}
-              <PostCard post={post} />
-            </div>
+            <PostCard
+              key={post.id}
+              post={post}
+              highlightLabel={isRelevant ? "Relevant to your profile" : undefined}
+            />
           );
         })}
       </div>
+
+      {filteredPosts.length === 0 && (
+        <div className="rounded-[28px] border border-dashed border-border bg-card px-6 py-14 text-center text-sm text-muted-foreground">
+          No posts match your current filters. Try removing the relevance filter or broadening the
+          search.
+        </div>
+      )}
     </AppShell>
   );
 };
