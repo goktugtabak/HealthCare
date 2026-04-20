@@ -1,0 +1,173 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  engineer
+  doctor
+  admin
+}
+
+enum ProjectStage {
+  idea
+  concept
+  prototype
+  pilot
+  deployed
+}
+
+enum PostStatus {
+  draft
+  active
+  meeting_scheduled
+  partner_found
+  expired
+}
+
+enum Confidentiality {
+  public
+  private
+}
+
+enum MeetingStatus {
+  pending
+  scheduled
+  completed
+  cancelled
+}
+
+enum NotificationType {
+  message_received
+  meeting_requested
+  meeting_scheduled
+  nda_required
+  post_expired
+  partner_found
+  email_verification
+}
+
+model User {
+  id            String    @id @default(uuid())
+  email         String    @unique
+  passwordHash  String
+  firstName     String
+  lastName      String
+  role          Role      @default(engineer)
+  institution   String?
+  bio           String?
+  verifiedAt    DateTime?
+  verifyToken   String?   @unique
+  refreshToken  String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  deletedAt     DateTime?
+
+  posts              Post[]
+  sentMessages       Message[]       @relation("SentMessages")
+  receivedMessages   Message[]       @relation("ReceivedMessages")
+  meetingRequests    MeetingRequest[] @relation("RequestorMeetings")
+  receivedMeetings   MeetingRequest[] @relation("RecipientMeetings")
+  notifications      Notification[]
+  auditLogs          AuditLog[]
+
+  @@map("users")
+}
+
+model Post {
+  id                String          @id @default(uuid())
+  title             String
+  description       String
+  domain            String
+  expertiseNeeded   String
+  commitmentLevel   String
+  projectStage      ProjectStage    @default(idea)
+  status            PostStatus      @default(draft)
+  confidentiality   Confidentiality @default(public)
+  tags              String[]        @default([])
+  authorId          String
+  viewCount         Int             @default(0)
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  deletedAt         DateTime?
+  expiresAt         DateTime?
+
+  author          User             @relation(fields: [authorId], references: [id])
+  messages        Message[]
+  meetingRequests MeetingRequest[]
+
+  @@map("posts")
+}
+
+model Message {
+  id             String    @id @default(uuid())
+  postId         String
+  senderId       String
+  recipientId    String
+  content        String
+  ndaAcceptedAt  DateTime?
+  isRead         Boolean   @default(false)
+  createdAt      DateTime  @default(now())
+  deletedAt      DateTime?
+
+  post      Post @relation(fields: [postId], references: [id])
+  sender    User @relation("SentMessages", fields: [senderId], references: [id])
+  recipient User @relation("ReceivedMessages", fields: [recipientId], references: [id])
+
+  @@map("messages")
+}
+
+model MeetingRequest {
+  id            String        @id @default(uuid())
+  postId        String
+  requestorId   String
+  recipientId   String
+  proposedTimes Json
+  agreedTime    DateTime?
+  externalUrl   String?
+  status        MeetingStatus @default(pending)
+  notes         String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  post      Post @relation(fields: [postId], references: [id])
+  requestor User @relation("RequestorMeetings", fields: [requestorId], references: [id])
+  recipient User @relation("RecipientMeetings", fields: [recipientId], references: [id])
+
+  @@map("meeting_requests")
+}
+
+model Notification {
+  id        String           @id @default(uuid())
+  userId    String
+  type      NotificationType
+  title     String
+  body      String
+  data      Json?
+  isRead    Boolean          @default(false)
+  createdAt DateTime         @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("notifications")
+}
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  userId     String?
+  action     String
+  resource   String
+  resourceId String?
+  details    Json?
+  ip         String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id])
+
+  @@map("audit_logs")
+}
