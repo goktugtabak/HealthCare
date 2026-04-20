@@ -1,0 +1,532 @@
+# Docker Setup Guide
+
+## 🐳 What You Need
+
+3 files at project root:
+1. `docker-compose.yml` - Orchestrates all 3 services
+2. `.env.docker` - Environment variables for Docker
+3. `.dockerignore` files in backend & frontend
+
+Plus:
+- `backend/Dockerfile`
+- `frontend/Dockerfile`
+
+---
+
+## 1️⃣ CREATE .env.docker
+
+At project root (next to docker-compose.yml):
+
+```bash
+touch .env.docker
+```
+
+**Content:**
+```
+# DATABASE
+POSTGRES_USER=healthai_user
+POSTGRES_PASSWORD=healthai_secure_password_123
+POSTGRES_DB=healthai_db
+DATABASE_URL=postgresql://healthai_user:healthai_secure_password_123@postgres:5432/healthai_db
+
+# BACKEND
+NODE_ENV=development
+JWT_SECRET=your_super_secret_jwt_key_change_in_production_12345
+SENDGRID_API_KEY=SG.xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+FRONTEND_URL=http://localhost:3000
+BACKEND_PORT=5000
+
+# FRONTEND
+VITE_API_URL=http://localhost:5000/api
+VITE_APP_NAME=HEALTH AI
+```
+
+---
+
+## 2️⃣ CREATE docker-compose.yml
+
+At project root:
+
+```bash
+touch docker-compose.yml
+```
+
+**Content:**
+
+```yaml
+version: '3.9'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: healthai-db
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - healthai-network
+    restart: unless-stopped
+
+  # Backend API Server
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: healthai-api
+    environment:
+      NODE_ENV: ${NODE_ENV}
+      DATABASE_URL: ${DATABASE_URL}
+      JWT_SECRET: ${JWT_SECRET}
+      SENDGRID_API_KEY: ${SENDGRID_API_KEY}
+      FRONTEND_URL: ${FRONTEND_URL}
+      PORT: ${BACKEND_PORT}
+    ports:
+      - "5000:5000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+    command: sh -c "npm install && npx prisma migrate deploy && npm run dev"
+    networks:
+      - healthai-network
+    restart: unless-stopped
+
+  # Frontend React App
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: healthai-web
+    environment:
+      VITE_API_URL: ${VITE_API_URL}
+      VITE_APP_NAME: ${VITE_APP_NAME}
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    networks:
+      - healthai-network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+    driver: local
+
+networks:
+  healthai-network:
+    driver: bridge
+```
+
+---
+
+## 3️⃣ CREATE backend/Dockerfile
+
+In backend folder:
+
+```bash
+cd backend
+touch Dockerfile
+```
+
+**Content:**
+
+```dockerfile
+# Build stage
+FROM node:18-alpine
+
+WORKDIR /app
+
+# Copy package files
+COPY package*.json ./
+
+# Install dependencies
+RUN npm ci
+
+# Copy source code
+COPY . .
+
+# Generate Prisma client
+RUN npx prisma generate
+
+# Expose port
+EXPOSE 5000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+  CMD node -e "require('http').get('http://localhost:5000/api/health', (r) => {if (r.statusCode !== 200) throw new Error(r.statusCode)})"
+
+# Run migrations and start development server
+CMD ["sh", "-c", "npx prisma migrate deploy && npm run dev"]
+```
+
+---
+
+## 4️⃣ CREATE backend/.dockerignore
+
+In backend folder:
+
+```bash
+touch .dockerignore
+```
+
+**Content:**
+
+```
+node_modules
+npm-debug.log
+dist
+.git
+.gitignore
+.env
+.env.local
+.env.*.local
+README.md
+.vscode
+.idea
+coverage
+.DS_Store
+```
+
+---
+
+## 5️⃣ CREATE frontend/Dockerfile
+
+In frontend folder:
+
+```bash
+cd frontend
+touch Dockerfile
+```
+
+**Content:**
+
+```dockerfile
+# Build stage - compile React app
+FROM node:18-alpine AS builder
+
+WORKDIR /app
+
+COPY package*.json ./
+
+RUN npm ci
+
+COPY . .
+
+# Build for production
+RUN npm run build
+
+# Production stage - serve the build
+FROM node:18-alpine
+
+WORKDIR /app
+
+# Install serve to run static files
+RUN npm install -g serve
+
+# Copy built app from builder stage
+COPY --from=builder /app/dist ./dist
+
+EXPOSE 3000
+
+# Serve the build
+CMD ["serve", "-s", "dist", "-l", "3000"]
+```
+
+---
+
+## 6️⃣ CREATE frontend/.dockerignore
+
+In frontend folder:
+
+```bash
+cd frontend
+touch .dockerignore
+```
+
+**Content:**
+
+```
+node_modules
+npm-debug.log
+.git
+.gitignore
+.env
+.env.local
+.env.*.local
+README.md
+.vscode
+.idea
+coverage
+.DS_Store
+src
+public
+.gitkeep
+```
+
+---
+
+## 7️⃣ PROJECT STRUCTURE CHECK
+
+```
+healthai-project/
+├── backend/
+│   ├── src/              ← Generated by Claude Code
+│   ├── prisma/           ← Generated by Claude Code
+│   ├── Dockerfile        ← Created above
+│   ├── .dockerignore     ← Created above
+│   ├── package.json      ← Generated by Claude Code
+│   └── .env.example      ← Generated by Claude Code
+├── frontend/
+│   ├── src/              ← Your existing code
+│   ├── .env              ← Created in adjustment guide
+│   ├── Dockerfile        ← Created above
+│   ├── .dockerignore     ← Created above
+│   ├── package.json      ← Your existing file
+│   └── vite.config.js    ← Your existing file
+├── docker-compose.yml    ← Created above
+├── .env.docker           ← Created above
+└── .gitignore            ← Should have: node_modules, .env, dist, .env.docker
+```
+
+---
+
+## 🚀 RUNNING DOCKER
+
+### First Time Setup:
+
+```bash
+# Go to project root
+cd healthai-project
+
+# Load environment variables
+export $(cat .env.docker | xargs)
+
+# Build and start all services
+docker-compose up --build
+
+# Takes ~2-3 minutes first time (building images, migrations)
+# You'll see logs from all 3 services
+```
+
+### Subsequent Times:
+
+```bash
+docker-compose up
+# Much faster - no rebuilding
+```
+
+### Stop Services:
+
+```bash
+# Keep data
+docker-compose down
+
+# Delete everything (including database)
+docker-compose down -v
+```
+
+---
+
+## 📊 WHAT'S RUNNING
+
+After `docker-compose up`:
+
+| Service | URL | Container Name |
+|---------|-----|-----------------|
+| Frontend (React) | http://localhost:3000 | healthai-web |
+| Backend (API) | http://localhost:5000 | healthai-api |
+| Database (PostgreSQL) | localhost:5432 | healthai-db |
+
+---
+
+## 🔍 MONITORING LOGS
+
+### All logs:
+```bash
+docker-compose logs -f
+```
+
+### Only backend:
+```bash
+docker-compose logs -f backend
+```
+
+### Only frontend:
+```bash
+docker-compose logs -f frontend
+```
+
+### Only database:
+```bash
+docker-compose logs -f postgres
+```
+
+### Last 50 lines:
+```bash
+docker-compose logs --tail=50
+```
+
+---
+
+## 🐛 TROUBLESHOOTING
+
+### Error: "Port 5000 already in use"
+```yaml
+# Change in docker-compose.yml:
+backend:
+  ports:
+    - "5001:5000"  # Use 5001 instead of 5000
+```
+
+### Error: "Port 3000 already in use"
+```yaml
+# Change in docker-compose.yml:
+frontend:
+  ports:
+    - "3001:3000"  # Use 3001 instead of 3000
+```
+
+### Error: "Postgres won't start"
+```bash
+# Check database logs
+docker-compose logs postgres
+
+# Remove volume and restart
+docker-compose down -v
+docker-compose up
+```
+
+### Error: "Backend can't connect to database"
+```bash
+# Wait for healthcheck to pass
+docker-compose logs postgres
+
+# Should see:
+# ✓ pg_isready check passed
+
+# Then restart backend
+docker-compose restart backend
+```
+
+### Error: "Frontend can't reach API"
+```bash
+# Check VITE_API_URL in .env
+cat frontend/.env
+
+# Should be: http://localhost:5000/api
+
+# Check backend is running
+docker-compose logs backend
+
+# If needed, check from inside container
+docker exec healthai-web curl http://healthai-api:5000/api/health
+```
+
+### Error: "npm install hangs"
+```bash
+# Clear Docker cache
+docker system prune -a
+
+# Rebuild
+docker-compose build --no-cache
+docker-compose up
+```
+
+---
+
+## ✅ VERIFICATION CHECKLIST
+
+After running `docker-compose up`:
+
+- [ ] All 3 services started (check logs)
+- [ ] Postgres healthcheck passed
+- [ ] Backend migrations completed
+- [ ] Frontend accessible at http://localhost:3000
+- [ ] Backend API responding at http://localhost:5000/api/health
+- [ ] Can register with .edu email
+- [ ] Can login
+- [ ] Posts load from database
+
+---
+
+## 🧪 QUICK TEST
+
+```bash
+# Test backend health
+curl http://localhost:5000/api/health
+
+# Test frontend
+open http://localhost:3000
+
+# Test database connection (from inside backend)
+docker exec healthai-api npm run db:check
+```
+
+---
+
+## 📝 USEFUL COMMANDS
+
+```bash
+# See all running containers
+docker-compose ps
+
+# See images
+docker images | grep healthai
+
+# Execute command in backend
+docker exec -it healthai-api npm run seed
+
+# Access database shell
+docker exec -it healthai-db psql -U healthai_user -d healthai_db
+
+# Rebuild specific service
+docker-compose up -d --build backend
+
+# View resource usage
+docker stats
+
+# Clean up everything
+docker system prune -a
+```
+
+---
+
+## 🎉 SUCCESS!
+
+When you see:
+```
+✓ postgres: healthy
+✓ backend: Server running on port 5000
+✓ frontend: Ready in XXX ms
+```
+
+All 3 are running and ready to use!
+
+---
+
+## 📚 NEXT STEPS
+
+1. ✅ Backend generated (Claude Code prompt)
+2. ✅ Frontend adjusted (API integration)
+3. ✅ Docker setup (this guide)
+4. ⏭️ Run `docker-compose up`
+5. ⏭️ Test at http://localhost:3000
+
+**See `03_FULL_SETUP_CHECKLIST.md` for complete list**

@@ -1,12 +1,29 @@
+import { useEffect, useState } from "react";
+import { motion, useMotionValue, useSpring, useTransform } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/SharedComponents";
 import { StatusBadge } from "@/components/StatusBadge";
-import { mockUsers } from "@/data/mockData";
+import { usePlatformData } from "@/contexts/PlatformDataContext";
 import type { Notification, Post, Role } from "@/data/types";
 import { cn } from "@/lib/utils";
 import type { LucideIcon } from "lucide-react";
 import { Search } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+
+const AnimatedNumber = ({ value }: { value: number }) => {
+  const motionValue = useMotionValue(0);
+  const spring = useSpring(motionValue, { damping: 24, stiffness: 110 });
+  const rounded = useTransform(spring, (latest) => Math.round(latest).toString());
+  const [display, setDisplay] = useState("0");
+
+  useEffect(() => {
+    motionValue.set(value);
+  }, [motionValue, value]);
+
+  useEffect(() => rounded.on("change", (latest) => setDisplay(latest)), [rounded]);
+
+  return <>{display}</>;
+};
 
 interface DashboardPageHeaderProps {
   eyebrow: string;
@@ -86,24 +103,43 @@ export const DashboardPageHeader = ({
 );
 
 export const DashboardStatsStrip = ({ items }: DashboardStatsStripProps) => (
-  <section className="rounded-[28px] bg-card/70 px-5 py-5 ring-1 ring-border/60">
-    <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-4 xl:gap-0 xl:divide-x xl:divide-border/60">
-      {items.map((item) => (
-        <div key={item.label} className="flex items-start justify-between gap-3 xl:px-5">
-          <div>
-            <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
-              {item.label}
-            </p>
-            <p className="mt-3 text-3xl font-semibold tracking-tight text-foreground">
-              {item.value}
-            </p>
-            {item.detail && (
-              <p className="mt-1 text-sm text-muted-foreground">{item.detail}</p>
-            )}
-          </div>
-          <item.icon className="mt-1 h-4 w-4 text-muted-foreground" />
-        </div>
-      ))}
+  <section className="relative overflow-hidden rounded-[28px] bg-card/70 px-5 py-5 ring-1 ring-border/60">
+    <div
+      aria-hidden
+      className="pointer-events-none absolute inset-0 opacity-60"
+      style={{
+        background:
+          "radial-gradient(60% 120% at 0% 0%, hsl(var(--accent) / 0.10), transparent 60%), radial-gradient(60% 120% at 100% 100%, hsl(var(--primary) / 0.10), transparent 60%)",
+      }}
+    />
+    <div className="relative grid gap-5 md:grid-cols-2 xl:grid-cols-4 xl:gap-0 xl:divide-x xl:divide-border/60">
+      {items.map((item, idx) => {
+        const numericValue = typeof item.value === "number" ? item.value : null;
+        return (
+          <motion.div
+            key={item.label}
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.45, delay: idx * 0.08, ease: [0.22, 1, 0.36, 1] }}
+            className="group flex items-start justify-between gap-3 xl:px-5"
+          >
+            <div>
+              <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
+                {item.label}
+              </p>
+              <p className="mt-3 text-3xl font-semibold tracking-tight text-foreground tabular-nums">
+                {numericValue !== null ? <AnimatedNumber value={numericValue} /> : item.value}
+              </p>
+              {item.detail && (
+                <p className="mt-1 text-sm text-muted-foreground">{item.detail}</p>
+              )}
+            </div>
+            <span className="mt-1 inline-flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-primary/10 to-accent/20 text-accent transition-transform duration-300 group-hover:scale-110 group-hover:from-primary/20 group-hover:to-accent/30">
+              <item.icon className="h-4 w-4" />
+            </span>
+          </motion.div>
+        );
+      })}
     </div>
   </section>
 );
@@ -143,7 +179,8 @@ export const DashboardSectionHeading = ({
 
 export const DashboardPostPreview = ({ post }: { post: Post }) => {
   const navigate = useNavigate();
-  const owner = mockUsers.find((user) => user.id === post.ownerId);
+  const { users } = usePlatformData();
+  const owner = users.find((user) => user.id === post.ownerId);
 
   return (
     <article className="-mx-2 rounded-3xl px-2 py-5 transition-colors hover:bg-muted/35">

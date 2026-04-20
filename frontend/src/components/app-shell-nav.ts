@@ -2,6 +2,7 @@ import type { LucideIcon } from "lucide-react";
 import {
   Bell,
   Compass,
+  CalendarDays,
   LayoutDashboard,
   Shield,
   UserRound,
@@ -33,6 +34,12 @@ const NAV_ITEMS: AppShellNavItem[] = [
     label: "My Posts",
     path: "/my-posts",
     icon: FileText,
+    roles: ["engineer", "healthcare", "admin"],
+  },
+  {
+    label: "Meetings",
+    path: "/meetings",
+    icon: CalendarDays,
     roles: ["engineer", "healthcare", "admin"],
   },
   {

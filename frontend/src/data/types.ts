@@ -4,6 +4,16 @@ export type PostStatus = 'Draft' | 'Active' | 'Meeting Scheduled' | 'Partner Fou
 
 export type MeetingRequestStatus = 'Pending' | 'Accepted' | 'Declined' | 'Scheduled' | 'Cancelled' | 'Completed';
 
+export interface PreferredContact {
+  method: 'Email' | 'Phone' | 'LinkedIn' | 'Other';
+  value: string;
+}
+
+export interface NotificationPreferences {
+  inApp: boolean;
+  email: boolean;
+}
+
 export interface User {
   id: string;
   fullName: string;
@@ -13,9 +23,15 @@ export interface User {
   city: string;
   country: string;
   expertiseTags: string[];
+  interestTags: string[];
   profileCompleteness: number;
   avatar: string;
   status: 'active' | 'suspended' | 'deactivated';
+  onboardingCompleted: boolean;
+  portfolioSummary?: string;
+  portfolioLinks: string[];
+  preferredContact?: PreferredContact;
+  notificationPreferences: NotificationPreferences;
   bio?: string;
   createdAt: string;
 }

@@ -1,40 +1,52 @@
-import { useState } from 'react';
-import { AppShell } from '@/components/AppShell';
-import { SectionHeader, NotificationItem } from '@/components/SharedComponents';
-import { mockNotifications } from '@/data/mockData';
-import { useAuth } from '@/contexts/AuthContext';
-import { Button } from '@/components/ui/button';
+import { AppShell } from "@/components/AppShell";
+import { NotificationItem, SectionHeader } from "@/components/SharedComponents";
+import { Button } from "@/components/ui/button";
+import { useAuth } from "@/contexts/AuthContext";
+import { usePlatformData } from "@/contexts/PlatformDataContext";
 
 const NotificationsPage = () => {
   const { currentUser } = useAuth();
-  const [notifications, setNotifications] = useState(mockNotifications);
+  const { markAllNotificationsRead, markNotificationRead, notifications } = usePlatformData();
 
   if (!currentUser) return null;
 
-  const myNotifs = notifications.filter(n => n.userId === currentUser.id);
-
-  const markAllRead = () => {
-    setNotifications(ns => ns.map(n => n.userId === currentUser.id ? { ...n, read: true } : n));
-  };
+  const myNotifications = [...notifications]
+    .filter((notification) => notification.userId === currentUser.id)
+    .sort(
+      (leftNotification, rightNotification) =>
+        new Date(rightNotification.createdAt).getTime() -
+        new Date(leftNotification.createdAt).getTime(),
+    );
 
   return (
     <AppShell>
       <SectionHeader
         title="Notifications"
-        action={<Button variant="outline" size="sm" onClick={markAllRead}>Mark All Read</Button>}
+        description="In-app updates are live. Email notifications remain planned/mock until backend delivery exists."
+        action={
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => markAllNotificationsRead(currentUser.id)}
+          >
+            Mark All Read
+          </Button>
+        }
       />
       <div className="max-w-2xl space-y-1 animate-fade-in">
-        {myNotifs.map(n => (
+        {myNotifications.map((notification) => (
           <NotificationItem
-            key={n.id}
-            title={n.title}
-            message={n.message}
-            time={new Date(n.createdAt).toLocaleString()}
-            read={n.read}
-            onClick={() => setNotifications(ns => ns.map(notif => notif.id === n.id ? { ...notif, read: true } : notif))}
+            key={notification.id}
+            title={notification.title}
+            message={notification.message}
+            time={new Date(notification.createdAt).toLocaleString()}
+            read={notification.read}
+            onClick={() => markNotificationRead(notification.id)}
           />
         ))}
-        {myNotifs.length === 0 && <p className="text-center py-16 text-sm text-muted-foreground">No notifications.</p>}
+        {myNotifications.length === 0 && (
+          <p className="py-16 text-center text-sm text-muted-foreground">No notifications.</p>
+        )}
       </div>
     </AppShell>
   );
