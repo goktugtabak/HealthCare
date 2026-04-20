@@ -5,17 +5,29 @@ import {
   CompactNotificationItem,
   CompactPostItem,
   DashboardEmptyPosts,
-  DashboardPageHeader,
   DashboardPostPreview,
   DashboardSectionHeading,
   DashboardStatsStrip,
   DashboardSurface,
 } from "@/components/DashboardComponents";
+import {
+  DashboardHero,
+  buildOnboardingSteps,
+  type NextBestAction,
+} from "@/components/DashboardHero";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/AuthContext";
 import { usePlatformData } from "@/contexts/PlatformDataContext";
 import type { Post, User } from "@/data/types";
-import { Bell, Calendar, Compass, FileText, Plus, Sparkles } from "lucide-react";
+import {
+  Bell,
+  Calendar,
+  Compass,
+  FileText,
+  Plus,
+  Sparkles,
+  UserCircle2,
+} from "lucide-react";
 
 const sortNewest = <T extends { createdAt: string }>(items: T[]) =>
   [...items].sort(
@@ -70,7 +82,6 @@ const DashboardPage = () => {
     return null;
   }
 
-  const firstName = currentUser.fullName.split(" ")[0];
   const myPosts = sortNewest(posts.filter((post) => post.ownerId === currentUser.id));
   const activeFeed = sortNewest(
     posts.filter((post) => post.ownerId !== currentUser.id && post.status === "Active"),
@@ -89,31 +100,146 @@ const DashboardPage = () => {
     ),
   );
   const scheduledMeetings = activeRequests.filter((request) => request.status === "Scheduled");
+  const pendingRequests = activeRequests.filter((request) => request.status === "Pending");
+
+  const nextAction: NextBestAction = useMemo(() => {
+    if (currentUser.profileCompleteness < 60) {
+      return {
+        headline: "Finish your profile to unlock matches",
+        description: `Your profile is ${currentUser.profileCompleteness}% complete. Add expertise tags so the platform can surface the right opportunities.`,
+        ctaLabel: "Complete profile",
+        to: "/profile",
+        icon: UserCircle2,
+        tone: "accent",
+      };
+    }
+
+    if (pendingRequests.length > 0) {
+      return {
+        headline: `${pendingRequests.length} meeting request${pendingRequests.length === 1 ? "" : "s"} waiting`,
+        description:
+          "Someone wants to start a first-contact conversation. Review and respond to keep momentum.",
+        ctaLabel: "Review",
+        to: "/meetings",
+        icon: Calendar,
+        tone: "primary",
+      };
+    }
+
+    if (unreadNotifications > 0) {
+      return {
+        headline: `${unreadNotifications} unread update${unreadNotifications === 1 ? "" : "s"}`,
+        description:
+          "New activity since your last visit. Check what changed before picking your next move.",
+        ctaLabel: "See updates",
+        to: "/notifications",
+        icon: Bell,
+        tone: "accent",
+      };
+    }
+
+    if (currentUser.role === "engineer" && myPosts.length === 0) {
+      return {
+        headline: "Publish your first project brief",
+        description:
+          "Share what you are building to attract healthcare collaborators aligned with your stage and domain.",
+        ctaLabel: "New post",
+        to: "/create-post",
+        icon: Plus,
+        tone: "primary",
+      };
+    }
+
+    if (currentUser.role === "healthcare" && relevantFeed.length > 0) {
+      return {
+        headline: `${relevantFeed.length} match${relevantFeed.length === 1 ? "" : "es"} aligned with your interests`,
+        description:
+          "Fresh posts matching your interest tags — open one to start a first-contact message.",
+        ctaLabel: "Review matches",
+        to: "/explore",
+        icon: Sparkles,
+        tone: "primary",
+      };
+    }
+
+    return {
+      headline: "Explore the latest opportunities",
+      description:
+        "Browse the newest active posts to find your next collaboration.",
+      ctaLabel: "Explore",
+      to: "/explore",
+      icon: Compass,
+      tone: "accent",
+    };
+  }, [
+    currentUser,
+    pendingRequests.length,
+    unreadNotifications,
+    myPosts.length,
+    relevantFeed.length,
+  ]);
+
+  const onboardingSteps = buildOnboardingSteps(
+    currentUser,
+    myPosts.length > 0,
+    activeRequests.length > 0,
+  );
 
   const stats = [
     {
       label: currentUser.role === "engineer" ? "My Briefs" : "My Announcements",
       value: myPosts.length,
-      detail: "High-level posts currently live",
+      detail: "Currently live",
       icon: FileText,
+      tone: "info" as const,
+      action:
+        myPosts.length > 0
+          ? { label: "Manage", to: "/my-posts" }
+          : undefined,
     },
     {
       label: "Relevant Matches",
       value: relevantFeed.length,
-      detail: "Posts aligned with your profile",
+      detail: "Aligned with your profile",
       icon: Sparkles,
+      tone: "accent" as const,
+      trend:
+        relevantFeed.length > 0
+          ? { direction: "up" as const, label: "fresh" }
+          : undefined,
+      action:
+        relevantFeed.length > 0
+          ? { label: "Explore", to: "/explore" }
+          : undefined,
     },
     {
       label: "Meetings",
       value: scheduledMeetings.length,
-      detail: "Confirmed first external conversations",
+      detail:
+        pendingRequests.length > 0
+          ? `${pendingRequests.length} pending`
+          : "Confirmed intros",
       icon: Calendar,
+      tone: (pendingRequests.length > 0 ? "warning" : "success") as
+        | "warning"
+        | "success",
+      action:
+        activeRequests.length > 0
+          ? { label: "View all", to: "/meetings" }
+          : undefined,
     },
     {
       label: "Notifications",
       value: unreadNotifications,
       detail: unreadNotifications === 1 ? "Unread update" : "Unread updates",
       icon: Bell,
+      tone: (unreadNotifications > 0 ? "warning" : "neutral") as
+        | "warning"
+        | "neutral",
+      action:
+        myNotifications.length > 0
+          ? { label: "View", to: "/notifications" }
+          : undefined,
     },
   ];
 
@@ -132,41 +258,15 @@ const DashboardPage = () => {
   return (
     <AppShell>
       <div className="space-y-8 animate-fade-in">
-        <DashboardPageHeader
+        <DashboardHero
+          user={currentUser}
           eyebrow={
             currentUser.role === "healthcare"
               ? "Healthcare discovery workspace"
               : "Engineer launchpad"
           }
-          title={`Welcome back, ${firstName}`}
-          description={
-            currentUser.role === "healthcare"
-              ? "See the newest announcements first, keep your profile-driven matches visible, and move promising introductions toward an external meeting."
-              : "Open the workspace with your post action visible, review the latest announcements, and keep first-contact conversations moving."
-          }
-          action={
-            <div className="flex flex-wrap gap-2">
-              <Button
-                size="sm"
-                className="rounded-full px-4"
-                onClick={() => navigate("/create-post")}
-              >
-                <Plus className="mr-1 h-4 w-4" />
-                New Post
-              </Button>
-              {currentUser.role === "healthcare" && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="rounded-full px-4"
-                  onClick={() => navigate("/explore")}
-                >
-                  <Compass className="mr-1 h-4 w-4" />
-                  Search Posts
-                </Button>
-              )}
-            </div>
-          }
+          nextAction={nextAction}
+          steps={onboardingSteps}
         />
 
         <DashboardStatsStrip items={stats} />
@@ -246,9 +346,12 @@ const DashboardPage = () => {
                     ))}
                   </div>
                 ) : (
-                  <p className="text-sm text-muted-foreground">
-                    Your next best action is the new post button at the top of this page.
-                  </p>
+                  <DashboardEmptyPosts
+                    title="No posts yet"
+                    description="Publish your first brief to start attracting collaborators."
+                    actionLabel="Create post"
+                    to="/create-post"
+                  />
                 )}
               </DashboardSurface>
             </div>
@@ -291,7 +394,12 @@ const DashboardPage = () => {
                     ))}
                   </div>
                 ) : (
-                  <DashboardEmptyPosts />
+                  <DashboardEmptyPosts
+                    title="No matches yet"
+                    description="Add more interest tags to your profile or browse the full feed."
+                    actionLabel="Open profile"
+                    to="/profile"
+                  />
                 )}
               </DashboardSurface>
 
@@ -388,9 +496,12 @@ const DashboardPage = () => {
                     ))}
                   </div>
                 ) : (
-                  <p className="text-sm text-muted-foreground">
-                    Create a brief announcement when you are ready to invite first-contact requests.
-                  </p>
+                  <DashboardEmptyPosts
+                    title="No announcements yet"
+                    description="Share a challenge you are facing to invite first-contact requests."
+                    actionLabel="Create announcement"
+                    to="/create-post"
+                  />
                 )}
               </DashboardSurface>
             </div>
