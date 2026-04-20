@@ -17,6 +17,26 @@ import { ShieldAlert } from "lucide-react";
 
 const institutionalEmailPattern = /\.(edu|edu\.tr|ac\.\w+|edu\.\w+)$/i;
 
+const Field = ({
+  id,
+  label,
+  error,
+  children,
+}: {
+  id: string;
+  label: string;
+  error?: string;
+  children: React.ReactNode;
+}) => (
+  <div>
+    <Label htmlFor={id} className="text-sm font-medium">
+      {label}
+    </Label>
+    {children}
+    {error && <p className="mt-1 text-xs text-destructive">{error}</p>}
+  </div>
+);
+
 const RegisterPage = () => {
   const navigate = useNavigate();
   const { register } = useAuth();
@@ -81,26 +101,6 @@ const RegisterPage = () => {
 
     navigate("/onboarding");
   };
-
-  const Field = ({
-    id,
-    label,
-    error,
-    children,
-  }: {
-    id: string;
-    label: string;
-    error?: string;
-    children: React.ReactNode;
-  }) => (
-    <div>
-      <Label htmlFor={id} className="text-sm font-medium">
-        {label}
-      </Label>
-      {children}
-      {error && <p className="mt-1 text-xs text-destructive">{error}</p>}
-    </div>
-  );
 
   return (
     <div className="min-h-screen bg-background px-4 py-10">
