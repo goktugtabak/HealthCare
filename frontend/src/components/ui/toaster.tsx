@@ -6,12 +6,20 @@ export function Toaster() {
 
   return (
     <ToastProvider>
-      {toasts.map(function ({ id, title, description, action, ...props }) {
+      {toasts.map(function ({ id, title, description, action, variant, ...props }) {
+        const showOrb = variant !== "destructive";
         return (
-          <Toast key={id} {...props}>
-            <div className="grid gap-1">
-              {title && <ToastTitle>{title}</ToastTitle>}
-              {description && <ToastDescription>{description}</ToastDescription>}
+          <Toast key={id} variant={variant} {...props}>
+            <div className="flex items-start gap-3">
+              {showOrb && (
+                <span aria-hidden className="mt-1.5 shrink-0">
+                  <span className="pulse-orb" />
+                </span>
+              )}
+              <div className="grid gap-1">
+                {title && <ToastTitle>{title}</ToastTitle>}
+                {description && <ToastDescription>{description}</ToastDescription>}
+              </div>
             </div>
             {action}
             <ToastClose />

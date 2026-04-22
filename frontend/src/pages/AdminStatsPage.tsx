@@ -1,7 +1,8 @@
 import { AppShell } from '@/components/AppShell';
-import { SectionHeader, StatsCard } from '@/components/SharedComponents';
+import { StatsCard } from '@/components/SharedComponents';
+import { PageHero } from '@/components/PageHero';
 import { mockPosts, mockUsers, mockMeetingRequests } from '@/data/mockData';
-import { Users, FileText, Calendar, TrendingUp, MapPin, Cpu } from 'lucide-react';
+import { Users, FileText, Calendar, TrendingUp, MapPin, Cpu, BarChart3 } from 'lucide-react';
 
 const AdminStatsPage = () => {
   const cities = mockPosts.reduce((acc, p) => { acc[p.city] = (acc[p.city] || 0) + 1; return acc; }, {} as Record<string, number>);
@@ -9,7 +10,12 @@ const AdminStatsPage = () => {
 
   return (
     <AppShell>
-      <SectionHeader title="Platform Statistics" description="Overview of platform metrics and usage." />
+      <PageHero
+        eyebrow="Admin"
+        title="Platform Statistics"
+        description="Overview of platform metrics and usage."
+        icon={BarChart3}
+      />
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
         <StatsCard label="Total Users" value={mockUsers.length} icon={Users} />

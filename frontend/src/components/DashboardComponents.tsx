@@ -7,7 +7,7 @@ import { usePlatformData } from "@/contexts/PlatformDataContext";
 import type { Notification, Post, Role } from "@/data/types";
 import { cn } from "@/lib/utils";
 import type { LucideIcon } from "lucide-react";
-import { Search } from "lucide-react";
+import { ArrowUpRight, Search } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 const AnimatedNumber = ({ value }: { value: number }) => {
@@ -32,16 +32,37 @@ interface DashboardPageHeaderProps {
   action?: React.ReactNode;
 }
 
+export type StatTone = "neutral" | "accent" | "success" | "warning" | "info";
+
 interface DashboardStatItem {
   label: string;
   value: number | string;
   detail?: string;
   icon: LucideIcon;
+  tone?: StatTone;
+  trend?: { direction: "up" | "down" | "flat"; label: string };
+  action?: { label: string; to: string };
 }
 
 interface DashboardStatsStripProps {
   items: DashboardStatItem[];
 }
+
+const toneBadgeClass: Record<StatTone, string> = {
+  neutral: "from-primary/10 to-accent/20 text-accent",
+  accent: "from-accent/20 to-accent/40 text-accent",
+  success:
+    "from-[hsl(var(--success))]/15 to-[hsl(var(--success))]/30 text-[hsl(var(--success))]",
+  warning:
+    "from-[hsl(var(--warning))]/15 to-[hsl(var(--warning))]/30 text-[hsl(var(--warning))]",
+  info: "from-[hsl(var(--info))]/15 to-[hsl(var(--info))]/30 text-[hsl(var(--info))]",
+};
+
+const trendClass: Record<"up" | "down" | "flat", string> = {
+  up: "text-[hsl(var(--success))]",
+  down: "text-destructive",
+  flat: "text-muted-foreground",
+};
 
 interface DashboardSectionHeadingProps {
   title: string;
@@ -102,47 +123,97 @@ export const DashboardPageHeader = ({
   </div>
 );
 
-export const DashboardStatsStrip = ({ items }: DashboardStatsStripProps) => (
-  <section className="relative overflow-hidden rounded-[28px] bg-card/70 px-5 py-5 ring-1 ring-border/60">
-    <div
-      aria-hidden
-      className="pointer-events-none absolute inset-0 opacity-60"
-      style={{
-        background:
-          "radial-gradient(60% 120% at 0% 0%, hsl(var(--accent) / 0.10), transparent 60%), radial-gradient(60% 120% at 100% 100%, hsl(var(--primary) / 0.10), transparent 60%)",
-      }}
-    />
-    <div className="relative grid gap-5 md:grid-cols-2 xl:grid-cols-4 xl:gap-0 xl:divide-x xl:divide-border/60">
-      {items.map((item, idx) => {
-        const numericValue = typeof item.value === "number" ? item.value : null;
-        return (
-          <motion.div
-            key={item.label}
-            initial={{ opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.45, delay: idx * 0.08, ease: [0.22, 1, 0.36, 1] }}
-            className="group flex items-start justify-between gap-3 xl:px-5"
-          >
-            <div>
-              <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
-                {item.label}
-              </p>
-              <p className="mt-3 text-3xl font-semibold tracking-tight text-foreground tabular-nums">
-                {numericValue !== null ? <AnimatedNumber value={numericValue} /> : item.value}
-              </p>
-              {item.detail && (
-                <p className="mt-1 text-sm text-muted-foreground">{item.detail}</p>
-              )}
-            </div>
-            <span className="mt-1 inline-flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-primary/10 to-accent/20 text-accent transition-transform duration-300 group-hover:scale-110 group-hover:from-primary/20 group-hover:to-accent/30">
-              <item.icon className="h-4 w-4" />
-            </span>
-          </motion.div>
-        );
-      })}
-    </div>
-  </section>
-);
+export const DashboardStatsStrip = ({ items }: DashboardStatsStripProps) => {
+  const navigate = useNavigate();
+
+  return (
+    <section className="relative overflow-hidden rounded-[28px] bg-card/70 px-5 py-5 ring-1 ring-border/60">
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 opacity-60"
+        style={{
+          background:
+            "radial-gradient(60% 120% at 0% 0%, hsl(var(--accent) / 0.10), transparent 60%), radial-gradient(60% 120% at 100% 100%, hsl(var(--primary) / 0.10), transparent 60%)",
+        }}
+      />
+      <div className="relative grid gap-5 md:grid-cols-2 xl:grid-cols-4 xl:gap-0 xl:divide-x xl:divide-border/60">
+        {items.map((item, idx) => {
+          const numericValue = typeof item.value === "number" ? item.value : null;
+          const tone = item.tone ?? "neutral";
+          const badge = toneBadgeClass[tone];
+          const TrendIcon =
+            item.trend?.direction === "down"
+              ? ArrowUpRight
+              : ArrowUpRight;
+          return (
+            <motion.div
+              key={item.label}
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.45, delay: idx * 0.08, ease: [0.22, 1, 0.36, 1] }}
+              className="group flex items-start justify-between gap-3 xl:px-5"
+            >
+              <div className="min-w-0">
+                <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
+                  {item.label}
+                </p>
+                <div className="mt-3 flex items-baseline gap-2">
+                  <p className="text-3xl font-semibold tracking-tight text-foreground tabular-nums">
+                    {numericValue !== null ? (
+                      <AnimatedNumber value={numericValue} />
+                    ) : (
+                      item.value
+                    )}
+                  </p>
+                  {item.trend && (
+                    <span
+                      className={cn(
+                        "inline-flex items-center gap-0.5 text-xs font-semibold",
+                        trendClass[item.trend.direction],
+                      )}
+                    >
+                      <TrendIcon
+                        className={cn(
+                          "h-3 w-3",
+                          item.trend.direction === "down" && "rotate-90",
+                          item.trend.direction === "flat" && "rotate-45",
+                        )}
+                      />
+                      {item.trend.label}
+                    </span>
+                  )}
+                </div>
+                {item.detail && (
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    {item.detail}
+                  </p>
+                )}
+                {item.action && (
+                  <button
+                    type="button"
+                    onClick={() => navigate(item.action!.to)}
+                    className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-accent transition-colors hover:text-primary"
+                  >
+                    {item.action.label}
+                    <ArrowUpRight className="h-3 w-3" />
+                  </button>
+                )}
+              </div>
+              <span
+                className={cn(
+                  "mt-1 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br transition-transform duration-300 group-hover:scale-110",
+                  badge,
+                )}
+              >
+                <item.icon className="h-4 w-4" />
+              </span>
+            </motion.div>
+          );
+        })}
+      </div>
+    </section>
+  );
+};
 
 export const DashboardSurface = ({
   children,
@@ -232,17 +303,27 @@ export const DashboardPostPreview = ({ post }: { post: Post }) => {
   );
 };
 
-export const DashboardEmptyPosts = () => {
+export const DashboardEmptyPosts = ({
+  title = "No relevant posts yet",
+  description = "Explore the broader feed to discover current collaboration opportunities.",
+  actionLabel = "Explore Posts",
+  to = "/explore",
+}: {
+  title?: string;
+  description?: string;
+  actionLabel?: string;
+  to?: string;
+} = {}) => {
   const navigate = useNavigate();
 
   return (
     <EmptyState
       icon={Search}
-      title="No relevant posts yet"
-      description="Explore the broader feed to discover current collaboration opportunities."
+      title={title}
+      description={description}
       action={
-        <Button variant="outline" onClick={() => navigate("/explore")}>
-          Explore Posts
+        <Button variant="outline" onClick={() => navigate(to)}>
+          {actionLabel}
         </Button>
       }
     />

@@ -26,6 +26,29 @@ import { ArrowLeft, ShieldAlert } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { usePlatformData } from "@/contexts/PlatformDataContext";
 
+const Field = ({
+  id,
+  label,
+  error,
+  helperText,
+  children,
+}: {
+  id: string;
+  label: string;
+  error?: string;
+  helperText?: string;
+  children: React.ReactNode;
+}) => (
+  <div>
+    <Label htmlFor={id} className="text-sm font-medium">
+      {label}
+    </Label>
+    {helperText && <p className="mb-1 mt-0.5 text-xs text-muted-foreground">{helperText}</p>}
+    {children}
+    {error && <p className="mt-1 text-xs text-destructive">{error}</p>}
+  </div>
+);
+
 const CreateEditPostPage = () => {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -118,29 +141,6 @@ const CreateEditPostPage = () => {
 
     navigate("/my-posts");
   };
-
-  const Field = ({
-    id,
-    label,
-    error,
-    helperText,
-    children,
-  }: {
-    id: string;
-    label: string;
-    error?: string;
-    helperText?: string;
-    children: React.ReactNode;
-  }) => (
-    <div>
-      <Label htmlFor={id} className="text-sm font-medium">
-        {label}
-      </Label>
-      {helperText && <p className="mb-1 mt-0.5 text-xs text-muted-foreground">{helperText}</p>}
-      {children}
-      {error && <p className="mt-1 text-xs text-destructive">{error}</p>}
-    </div>
-  );
 
   return (
     <AppShell>

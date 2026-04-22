@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { AppShell } from '@/components/AppShell';
-import { SectionHeader } from '@/components/SharedComponents';
+import { PageHero } from '@/components/PageHero';
+import { FileText } from 'lucide-react';
 import { StatusBadge } from '@/components/StatusBadge';
 import { RoleBadge } from '@/components/RoleBadge';
 import { SearchInput, FilterSelect, FilterPanel } from '@/components/FilterComponents';
@@ -31,7 +32,17 @@ const AdminPostsPage = () => {
 
   return (
     <AppShell>
-      <SectionHeader title="Post Management" description="Review and manage all platform posts." />
+      <PageHero
+        eyebrow="Admin"
+        title="Post Management"
+        description="Review and manage all platform posts."
+        icon={FileText}
+        meta={
+          <span className="inline-flex items-center gap-1 rounded-full bg-card px-3 py-1 text-xs font-medium text-muted-foreground ring-1 ring-border/60">
+            <span className="tabular-nums">{filtered.length}</span> of {posts.length}
+          </span>
+        }
+      />
       <div className="mb-4"><SearchInput value={search} onChange={setSearch} placeholder="Search posts..." /></div>
       <FilterPanel filters={filters} onClear={() => setFilters({ domain: 'all', status: 'all' })}>
         <FilterSelect label="Domain" value={filters.domain} onChange={v => setFilters(f => ({ ...f, domain: v }))} options={domainOptions} />
