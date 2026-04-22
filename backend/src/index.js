@@ -9,6 +9,7 @@ const authRoutes = require('./routes/auth');
 const postRoutes = require('./routes/posts');
 const messageRoutes = require('./routes/messages');
 const adminRoutes = require('./routes/admin');
+const userRoutes = require('./routes/users');
 const errorHandler = require('./middleware/errorHandler');
 const logger = require('./middleware/logger');
 
@@ -46,6 +47,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/posts', postRoutes);
 app.use('/api/messages', messageRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/users', userRoutes);
 
 app.use('*', (req, res) => {
   res.status(404).json({ error: 'Route not found' });

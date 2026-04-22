@@ -83,6 +83,8 @@ const login = async ({ email, password }) => {
     data: { refreshToken },
   });
 
+  const roleForClient = user.role === 'doctor' ? 'healthcare' : user.role;
+
   return {
     accessToken,
     refreshToken,
@@ -91,7 +93,8 @@ const login = async ({ email, password }) => {
       email: user.email,
       firstName: user.firstName,
       lastName: user.lastName,
-      role: user.role,
+      fullName: `${user.firstName} ${user.lastName}`.trim(),
+      role: roleForClient,
       verifiedAt: user.verifiedAt,
     },
   };

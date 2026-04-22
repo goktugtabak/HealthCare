@@ -1,7 +1,10 @@
 const express = require('express');
 const { body, validationResult } = require('express-validator');
+const { PrismaClient } = require('@prisma/client');
 const authService = require('../services/auth');
 const { authenticate } = require('../middleware/auth');
+
+const prisma = new PrismaClient();
 
 const router = express.Router();
 
@@ -18,14 +21,27 @@ router.post(
   [
     body('email').isEmail().normalizeEmail().withMessage('Valid email required'),
     body('password').isLength({ min: 8 }).withMessage('Password must be at least 8 characters'),
-    body('firstName').trim().notEmpty().withMessage('First name required'),
-    body('lastName').trim().notEmpty().withMessage('Last name required'),
-    body('role').optional().isIn(['engineer', 'doctor']).withMessage('Role must be engineer or doctor'),
+    body('role').optional().isIn(['engineer', 'healthcare', 'doctor']).withMessage('Role must be engineer or healthcare'),
   ],
   validate,
   async (req, res, next) => {
     try {
-      const user = await authService.register(req.body);
+      let { firstName, lastName, fullName, role, ...rest } = req.body;
+
+      if (!firstName && fullName) {
+        const parts = fullName.trim().split(/\s+/);
+        firstName = parts[0] ?? '';
+        lastName = parts.slice(1).join(' ') || parts[0];
+      }
+
+      if (!firstName || !lastName) {
+        return res.status(400).json({ errors: [{ msg: 'Full name is required' }] });
+      }
+
+      // Normalize role: frontend sends 'healthcare', Prisma enum uses 'doctor'
+      const normalizedRole = role === 'healthcare' ? 'doctor' : (role ?? 'engineer');
+
+      const user = await authService.register({ ...rest, firstName, lastName, role: normalizedRole });
       res.status(201).json({ message: 'Registration successful. Check your email to verify.', user });
     } catch (err) {
       next(err);
@@ -78,8 +94,6 @@ router.get('/me', authenticate, (req, res) => {
 
 router.post('/logout', authenticate, async (req, res, next) => {
   try {
-    const { PrismaClient } = require('@prisma/client');
-    const prisma = new PrismaClient();
     await prisma.user.update({
       where: { id: req.user.id },
       data: { refreshToken: null },
