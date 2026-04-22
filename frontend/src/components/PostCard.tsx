@@ -44,9 +44,16 @@ export const PostCard = ({
   return (
     <article
       className={cn(
-        "group relative flex flex-col overflow-hidden rounded-[24px] border border-border bg-card p-5 transition-all animate-fade-in",
+        "group relative flex flex-col overflow-hidden rounded-[24px] border border-border bg-card transition-all animate-fade-in",
         "hover:-translate-y-0.5 hover:border-accent/40 hover:shadow-lg hover:shadow-accent/5",
       )}
+      style={{
+        padding: "20px 24px",
+        marginBottom: "24px",
+        borderLeft: "3px solid #4a8f9b",
+        fontSize: "14px",
+        lineHeight: 1.6,
+      }}
     >
       {relevanceScore !== null && relevanceScore > 0 && (
         <div
