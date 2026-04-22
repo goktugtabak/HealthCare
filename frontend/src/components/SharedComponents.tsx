@@ -1,4 +1,9 @@
+import { Suspense, lazy } from 'react';
 import { cn } from '@/lib/utils';
+
+const EmptyOrb = lazy(() =>
+  import('@/components/three/EmptyOrb').then((module) => ({ default: module.EmptyOrb })),
+);
 
 export const SectionHeader = ({ title, description, className, action }: {
   title: string;
@@ -15,19 +20,31 @@ export const SectionHeader = ({ title, description, className, action }: {
   </div>
 );
 
-export const EmptyState = ({ icon: Icon, title, description, action }: {
+export const EmptyState = ({ icon: Icon, title, description, action, withOrb = true }: {
   icon: React.ElementType;
   title: string;
   description: string;
   action?: React.ReactNode;
+  /** Render the healthcare-themed 3D orb behind the icon. Defaults to true. */
+  withOrb?: boolean;
 }) => (
-  <div className="flex flex-col items-center justify-center py-16 text-center">
-    <div className="rounded-full bg-muted p-4 mb-4">
+  <div className="relative flex flex-col items-center justify-center py-16 text-center">
+    {withOrb && (
+      <div
+        aria-hidden
+        className="pointer-events-none absolute left-1/2 top-2 h-44 w-44 -translate-x-1/2"
+      >
+        <Suspense fallback={null}>
+          <EmptyOrb className="h-full w-full" size="sm" />
+        </Suspense>
+      </div>
+    )}
+    <div className="relative z-10 rounded-full bg-card/80 p-4 mb-4 ring-1 ring-border/60 backdrop-blur-sm">
       <Icon className="h-8 w-8 text-muted-foreground" />
     </div>
-    <h3 className="text-lg font-medium mb-1">{title}</h3>
-    <p className="text-sm text-muted-foreground max-w-sm mb-4">{description}</p>
-    {action}
+    <h3 className="relative z-10 text-lg font-medium mb-1">{title}</h3>
+    <p className="relative z-10 text-sm text-muted-foreground max-w-sm mb-4">{description}</p>
+    {action && <div className="relative z-10">{action}</div>}
   </div>
 );
 
