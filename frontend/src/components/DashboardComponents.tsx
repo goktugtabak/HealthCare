@@ -127,7 +127,10 @@ export const DashboardStatsStrip = ({ items }: DashboardStatsStripProps) => {
   const navigate = useNavigate();
 
   return (
-    <section className="relative overflow-hidden rounded-[28px] bg-card/70 px-5 py-5 ring-1 ring-border/60">
+    <section
+      className="relative overflow-hidden rounded-[28px] bg-card/70 px-5 py-5 ring-1 ring-border/60"
+      style={{ marginTop: "32px", fontSize: "14px", lineHeight: 1.6 }}
+    >
       <div
         aria-hidden
         className="pointer-events-none absolute inset-0 opacity-60"
@@ -136,7 +139,14 @@ export const DashboardStatsStrip = ({ items }: DashboardStatsStripProps) => {
             "radial-gradient(60% 120% at 0% 0%, hsl(var(--accent) / 0.10), transparent 60%), radial-gradient(60% 120% at 100% 100%, hsl(var(--primary) / 0.10), transparent 60%)",
         }}
       />
-      <div className="relative grid gap-5 md:grid-cols-2 xl:grid-cols-4 xl:gap-0 xl:divide-x xl:divide-border/60">
+      <div
+        className="relative xl:divide-x xl:divide-border/60"
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
+          gap: "16px",
+        }}
+      >
         {items.map((item, idx) => {
           const numericValue = typeof item.value === "number" ? item.value : null;
           const tone = item.tone ?? "neutral";
@@ -254,7 +264,13 @@ export const DashboardPostPreview = ({ post }: { post: Post }) => {
   const owner = users.find((user) => user.id === post.ownerId);
 
   return (
-    <article className="-mx-2 rounded-3xl px-2 py-5 transition-colors hover:bg-muted/35">
+    <article
+      className="rounded-2xl border border-border/60 bg-card/60 transition-colors hover:bg-muted/35"
+      style={{
+        padding: "20px 24px",
+        borderLeft: "3px solid #4a8f9b",
+      }}
+    >
       <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
         <div className="min-w-0 flex-1">
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">

@@ -291,7 +291,7 @@ const DashboardPage = () => {
               />
 
               {activeFeed.length > 0 ? (
-                <div className="mt-6 divide-y divide-border/60">
+                <div className="mt-6 flex flex-col gap-4">
                   {activeFeed.slice(0, 4).map((post) => (
                     <DashboardPostPreview key={post.id} post={post} />
                   ))}
