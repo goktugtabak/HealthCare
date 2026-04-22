@@ -1,11 +1,20 @@
-import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, memo, useEffect, useMemo, useRef, useState } from "react";
 import { Canvas, useFrame } from "@react-three/fiber";
-import { Float } from "@react-three/drei";
 import * as THREE from "three";
 
 const ENGINEER_COLOR = "#1b3a5b";
 const HEALTHCARE_COLOR = "#4a8f9b";
 const ACCENT_COLOR = "#86c7cc";
+
+const PALETTE = [
+  new THREE.Color(ENGINEER_COLOR),
+  new THREE.Color(HEALTHCARE_COLOR),
+  new THREE.Color(ACCENT_COLOR),
+];
+
+const COLOR_CYCLE_SECONDS = 4.5; // spec: 4-5s
+const ROTATION_PERIOD_SECONDS = 20; // spec: 1 turn per 20s
+const ROTATION_OMEGA = (Math.PI * 2) / ROTATION_PERIOD_SECONDS;
 
 const prefersReducedMotion = () =>
   typeof window !== "undefined" &&
@@ -19,113 +28,70 @@ const isLowPowerDevice = () => {
 };
 
 /**
- * Mini DNA helix — two interlocked strands of small spheres connected by
- * thin rungs. Healthcare-coded (bio motif), engineer-coded (mathematical
- * twist), and matches the platform palette.
+ * Samples a position around the 3-stop palette loop (engineer → healthcare →
+ * accent → engineer) using smoothstep easing so the transitions feel breathing
+ * rather than linear.
  */
-const Helix = ({ rungCount = 9 }: { rungCount?: number }) => {
-  const groupRef = useRef<THREE.Group>(null);
+const sampleCycleColor = (t: number, target: THREE.Color) => {
+  // t in [0, 1) across the whole cycle. Three segments of length 1/3.
+  const phase = t * 3;
+  const segment = Math.floor(phase) % 3;
+  const local = phase - Math.floor(phase);
+  // smoothstep for a meditative ease-in-out between stops
+  const eased = local * local * (3 - 2 * local);
 
-  useFrame((_, delta) => {
-    if (!groupRef.current) return;
-    groupRef.current.rotation.y += delta * 0.6;
-  });
-
-  const rungs = useMemo(
-    () => Array.from({ length: rungCount }, (_, index) => index),
-    [rungCount],
-  );
-
-  const height = 1.6;
-  const radius = 0.55;
-  const turns = 1.4;
-
-  return (
-    <group ref={groupRef}>
-      {rungs.map((index) => {
-        const t = index / (rungCount - 1);
-        const y = (t - 0.5) * height;
-        const angle = t * Math.PI * 2 * turns;
-        const xA = Math.cos(angle) * radius;
-        const zA = Math.sin(angle) * radius;
-        const xB = -xA;
-        const zB = -zA;
-
-        return (
-          <group key={index}>
-            <mesh position={[xA, y, zA]}>
-              <sphereGeometry args={[0.085, 16, 16]} />
-              <meshStandardMaterial
-                color={ENGINEER_COLOR}
-                roughness={0.3}
-                metalness={0.4}
-                emissive={ENGINEER_COLOR}
-                emissiveIntensity={0.18}
-              />
-            </mesh>
-            <mesh position={[xB, y, zB]}>
-              <sphereGeometry args={[0.085, 16, 16]} />
-              <meshStandardMaterial
-                color={HEALTHCARE_COLOR}
-                roughness={0.3}
-                metalness={0.4}
-                emissive={HEALTHCARE_COLOR}
-                emissiveIntensity={0.2}
-              />
-            </mesh>
-            {index % 2 === 0 && (
-              <mesh
-                position={[0, y, 0]}
-                rotation={[0, -angle, Math.PI / 2]}
-              >
-                <cylinderGeometry args={[0.012, 0.012, radius * 2, 8]} />
-                <meshStandardMaterial
-                  color={ACCENT_COLOR}
-                  emissive={ACCENT_COLOR}
-                  emissiveIntensity={0.4}
-                  transparent
-                  opacity={0.55}
-                />
-              </mesh>
-            )}
-          </group>
-        );
-      })}
-    </group>
-  );
+  const from = PALETTE[segment];
+  const to = PALETTE[(segment + 1) % 3];
+  target.copy(from).lerp(to, eased);
 };
 
-/**
- * Pulse ring — soft heartbeat halo around the helix.
- */
-const PulseRing = () => {
-  const ringRef = useRef<THREE.Mesh>(null);
+const CalmSphere = memo(() => {
+  const meshRef = useRef<THREE.Mesh>(null);
   const materialRef = useRef<THREE.MeshStandardMaterial>(null);
+  const colorScratch = useMemo(() => new THREE.Color(), []);
 
-  useFrame((state) => {
-    if (!ringRef.current || !materialRef.current) return;
+  useFrame((state, delta) => {
+    const mesh = meshRef.current;
+    const material = materialRef.current;
+    if (!mesh || !material) return;
+
+    // Very slow rotation — one turn per 20s, subtle tilt on x for life
+    mesh.rotation.y += ROTATION_OMEGA * delta;
+    mesh.rotation.x += ROTATION_OMEGA * 0.25 * delta;
+
     const elapsed = state.clock.getElapsedTime();
-    const pulse = (Math.sin(elapsed * 1.6) + 1) * 0.5;
-    const scale = 1 + pulse * 0.08;
-    ringRef.current.scale.set(scale, scale, scale);
-    materialRef.current.opacity = 0.35 + pulse * 0.35;
-    materialRef.current.emissiveIntensity = 0.4 + pulse * 0.4;
+
+    // Smooth palette cycle
+    const cycleT = (elapsed / COLOR_CYCLE_SECONDS) % 1;
+    sampleCycleColor(cycleT, colorScratch);
+    material.color.copy(colorScratch);
+    material.emissive.copy(colorScratch);
+
+    // Gentle breathing glow, independent cadence (≈ 3.2s breath)
+    const pulse = (Math.sin(elapsed * (Math.PI * 2) / 3.2) + 1) * 0.5;
+    material.emissiveIntensity = 0.2 + pulse * 0.2; // 0.2 → 0.4
+
+    // Almost imperceptible scale breathing (~1.5%) for a meditative feel
+    const scale = 1 + pulse * 0.015;
+    mesh.scale.setScalar(scale);
   });
 
   return (
-    <mesh ref={ringRef} rotation={[Math.PI / 2.2, 0, 0]}>
-      <torusGeometry args={[1.35, 0.018, 14, 96]} />
+    <mesh ref={meshRef}>
+      <sphereGeometry args={[1, 64, 64]} />
       <meshStandardMaterial
         ref={materialRef}
-        color={ACCENT_COLOR}
-        emissive={ACCENT_COLOR}
-        emissiveIntensity={0.5}
-        transparent
-        opacity={0.55}
+        color={HEALTHCARE_COLOR}
+        emissive={HEALTHCARE_COLOR}
+        emissiveIntensity={0.3}
+        roughness={0.32}
+        metalness={0.35}
       />
     </mesh>
   );
-};
+});
+
+CalmSphere.displayName = "CalmSphere";
 
 interface EmptyOrbProps {
   className?: string;
@@ -159,24 +125,21 @@ export const EmptyOrb = ({ className, size = "md" }: EmptyOrbProps) => {
     return <StaticFallback className={className} />;
   }
 
-  const camZ = size === "sm" ? 4.6 : 4;
+  const camZ = size === "sm" ? 3.8 : 3.3;
 
   return (
     <div className={className} aria-hidden>
       <Canvas
-        camera={{ position: [0, 0.1, camZ], fov: 45 }}
+        camera={{ position: [0, 0, camZ], fov: 45 }}
         dpr={[1, 1.5]}
         gl={{ alpha: true, antialias: true, powerPreference: "low-power" }}
         style={{ background: "transparent" }}
       >
-        <ambientLight intensity={0.7} />
-        <directionalLight position={[2, 3, 3]} intensity={0.8} color="#ffffff" />
-        <pointLight position={[-3, 1, -2]} intensity={0.6} color={HEALTHCARE_COLOR} />
+        <ambientLight intensity={0.55} />
+        <directionalLight position={[2, 3, 3]} intensity={0.7} color="#ffffff" />
+        <pointLight position={[-3, 1, -2]} intensity={0.5} color={ACCENT_COLOR} />
         <Suspense fallback={null}>
-          <Float speed={0.8} rotationIntensity={0.15} floatIntensity={0.35}>
-            <Helix />
-          </Float>
-          <PulseRing />
+          <CalmSphere />
         </Suspense>
       </Canvas>
     </div>

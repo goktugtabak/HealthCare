@@ -1,10 +1,15 @@
-import { Suspense, useEffect, useMemo, useRef, useState } from "react";
-import { Canvas, useFrame } from "@react-three/fiber";
-import { Float } from "@react-three/drei";
+import {
+  Suspense,
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
 
-const ENGINEER_COLOR = "#1b3a5b";
-const HEALTHCARE_COLOR = "#4a8f9b";
 const ACCENT_COLOR = "#86c7cc";
 
 const prefersReducedMotion = () =>
@@ -18,91 +23,182 @@ const isLowPowerDevice = () => {
   return typeof cores === "number" && cores > 0 && cores < 4;
 };
 
-const Orbs = () => {
-  const groupRef = useRef<THREE.Group>(null);
+interface GridParticlesProps {
+  count: number;
+}
 
-  useFrame((_, delta) => {
-    if (!groupRef.current) return;
-    groupRef.current.rotation.y += delta * 0.12;
-  });
+/**
+ * Loose grid of particles drifting on a single shared time uniform.
+ * All animation runs on the GPU — the JS per-frame cost is effectively
+ * one uniform write.
+ */
+const GridParticles = memo(({ count }: GridParticlesProps) => {
+  const materialRef = useRef<THREE.ShaderMaterial>(null);
 
-  return (
-    <group ref={groupRef}>
-      <Float speed={1.2} rotationIntensity={0.25} floatIntensity={0.55}>
-        <mesh position={[-1.3, 0.2, 0]}>
-          <sphereGeometry args={[0.78, 32, 32]} />
-          <meshStandardMaterial
-            color={ENGINEER_COLOR}
-            roughness={0.35}
-            metalness={0.35}
-          />
-        </mesh>
-        <mesh position={[1.3, -0.2, 0]}>
-          <sphereGeometry args={[0.78, 32, 32]} />
-          <meshStandardMaterial
-            color={HEALTHCARE_COLOR}
-            roughness={0.3}
-            metalness={0.35}
-          />
-        </mesh>
-      </Float>
+  // Build a jittered grid: cols × rows ≈ count, with small per-particle
+  // offsets so it reads as "loose" rather than a rigid matrix.
+  const { positions, seeds } = useMemo(() => {
+    const cols = Math.ceil(Math.sqrt(count * 1.6));
+    const rows = Math.ceil(count / cols);
+    const total = cols * rows;
 
-      <mesh rotation={[Math.PI / 2, 0, 0]}>
-        <torusGeometry args={[1.85, 0.04, 12, 64]} />
-        <meshStandardMaterial
-          color={ACCENT_COLOR}
-          emissive={ACCENT_COLOR}
-          emissiveIntensity={0.45}
-          transparent
-          opacity={0.8}
-        />
-      </mesh>
-    </group>
-  );
-};
+    const pos = new Float32Array(total * 3);
+    const seed = new Float32Array(total);
 
-const DriftParticles = ({ count = 90 }: { count?: number }) => {
-  const pointsRef = useRef<THREE.Points>(null);
+    const spanX = 12;
+    const spanY = 7;
+    const cellX = spanX / cols;
+    const cellY = spanY / rows;
 
-  const positions = useMemo(() => {
-    const arr = new Float32Array(count * 3);
-    for (let i = 0; i < count; i += 1) {
-      const radius = 2.8 + Math.random() * 2.8;
-      const theta = Math.random() * Math.PI * 2;
-      const phi = Math.acos(2 * Math.random() - 1);
-      arr[i * 3] = radius * Math.sin(phi) * Math.cos(theta);
-      arr[i * 3 + 1] = radius * Math.cos(phi) * 0.5;
-      arr[i * 3 + 2] = radius * Math.sin(phi) * Math.sin(theta);
+    for (let r = 0; r < rows; r += 1) {
+      for (let c = 0; c < cols; c += 1) {
+        const i = r * cols + c;
+        const jitterX = (Math.random() - 0.5) * cellX * 0.75;
+        const jitterY = (Math.random() - 0.5) * cellY * 0.75;
+        const z = (Math.random() - 0.5) * 2.5;
+
+        pos[i * 3] = -spanX / 2 + cellX * (c + 0.5) + jitterX;
+        pos[i * 3 + 1] = -spanY / 2 + cellY * (r + 0.5) + jitterY;
+        pos[i * 3 + 2] = z;
+
+        seed[i] = Math.random() * Math.PI * 2;
+      }
     }
-    return arr;
+
+    return { positions: pos, seeds: seed };
   }, [count]);
 
-  useFrame((_, delta) => {
-    if (!pointsRef.current) return;
-    pointsRef.current.rotation.y += delta * 0.03;
+  const uniforms = useMemo(
+    () => ({
+      uTime: { value: 0 },
+      uColor: { value: new THREE.Color(ACCENT_COLOR) },
+      uOpacity: { value: 0.2 },
+      uSize: { value: 6.5 },
+    }),
+    [],
+  );
+
+  // 5-8 sec drift cycle → ω ≈ 2π / 6.5 ≈ 0.97 rad/sec (spec midpoint)
+  useFrame((state) => {
+    if (materialRef.current) {
+      materialRef.current.uniforms.uTime.value = state.clock.getElapsedTime();
+    }
   });
 
+  const vertexShader = useMemo(
+    () => /* glsl */ `
+      attribute float aSeed;
+      uniform float uTime;
+      uniform float uSize;
+      varying float vFade;
+
+      void main() {
+        vec3 pos = position;
+        float t = uTime * 0.97 + aSeed;
+        // Very slow, small-amplitude drift (5-8s cycle, ~0.12 unit reach)
+        pos.x += sin(t) * 0.12;
+        pos.y += cos(t * 0.85) * 0.10;
+        pos.z += sin(t * 0.6) * 0.08;
+
+        vec4 mv = modelViewMatrix * vec4(pos, 1.0);
+        gl_Position = projectionMatrix * mv;
+        // Attenuate size with depth and soften far particles
+        gl_PointSize = uSize * (12.0 / -mv.z);
+        vFade = smoothstep(-3.5, 0.5, mv.z + 4.0);
+      }
+    `,
+    [],
+  );
+
+  const fragmentShader = useMemo(
+    () => /* glsl */ `
+      uniform vec3 uColor;
+      uniform float uOpacity;
+      varying float vFade;
+
+      void main() {
+        // Circular sprite with soft edge — no texture needed
+        vec2 uv = gl_PointCoord - 0.5;
+        float d = length(uv);
+        if (d > 0.5) discard;
+        float alpha = (1.0 - smoothstep(0.25, 0.5, d)) * uOpacity * vFade;
+        gl_FragColor = vec4(uColor, alpha);
+      }
+    `,
+    [],
+  );
+
   return (
-    <points ref={pointsRef}>
+    <points>
       <bufferGeometry>
         <bufferAttribute
           attach="attributes-position"
-          count={count}
+          count={positions.length / 3}
           array={positions}
           itemSize={3}
         />
+        <bufferAttribute
+          attach="attributes-aSeed"
+          count={seeds.length}
+          array={seeds}
+          itemSize={1}
+        />
       </bufferGeometry>
-      <pointsMaterial
-        size={0.04}
-        color={ACCENT_COLOR}
+      <shaderMaterial
+        ref={materialRef}
+        uniforms={uniforms}
+        vertexShader={vertexShader}
+        fragmentShader={fragmentShader}
         transparent
-        opacity={0.55}
-        sizeAttenuation
         depthWrite={false}
       />
     </points>
   );
-};
+});
+
+GridParticles.displayName = "GridParticles";
+
+const ParallaxRig = memo(() => {
+  const { camera } = useThree();
+  const target = useRef({ x: 0, y: 0 });
+  const current = useRef({ x: 0, y: 0 });
+  const scrollOffset = useRef(0);
+
+  const handlePointerMove = useCallback((event: PointerEvent) => {
+    const nx = (event.clientX / window.innerWidth) * 2 - 1;
+    const ny = (event.clientY / window.innerHeight) * 2 - 1;
+    target.current.x = nx * 0.25;
+    target.current.y = -ny * 0.15;
+  }, []);
+
+  const handleScroll = useCallback(() => {
+    // Normalize scroll so a viewport-height of scroll moves the camera ~0.15u
+    scrollOffset.current = (window.scrollY / window.innerHeight) * 0.15;
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.addEventListener("pointermove", handlePointerMove, { passive: true });
+    window.addEventListener("scroll", handleScroll, { passive: true });
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("scroll", handleScroll);
+    };
+  }, [handlePointerMove, handleScroll]);
+
+  useFrame(() => {
+    // 0.05 dampening — matches spec parallax intensity
+    current.current.x += (target.current.x - current.current.x) * 0.05;
+    current.current.y += (target.current.y - current.current.y) * 0.05;
+    camera.position.x = current.current.x;
+    camera.position.y = 0.1 + current.current.y - scrollOffset.current;
+    camera.lookAt(0, 0, 0);
+  });
+
+  return null;
+});
+
+ParallaxRig.displayName = "ParallaxRig";
 
 interface SubtleSceneProps {
   intensity?: "minimal" | "standard";
@@ -115,7 +211,7 @@ const StaticFallback = ({ className }: { className?: string }) => (
     className={className}
     style={{
       background:
-        "radial-gradient(55% 85% at 20% 15%, rgba(134, 199, 204, 0.28), transparent 65%), radial-gradient(55% 85% at 85% 80%, rgba(27, 58, 91, 0.32), transparent 65%)",
+        "radial-gradient(55% 85% at 20% 15%, rgba(134, 199, 204, 0.18), transparent 65%), radial-gradient(55% 85% at 85% 80%, rgba(134, 199, 204, 0.12), transparent 65%)",
     }}
   />
 );
@@ -135,7 +231,7 @@ const SubtleScene = ({ intensity = "standard", className }: SubtleSceneProps) =>
     return <StaticFallback className={className} />;
   }
 
-  const particleCount = intensity === "minimal" ? 50 : 90;
+  const particleCount = intensity === "minimal" ? 80 : 95;
 
   return (
     <div className={className} aria-hidden>
@@ -146,12 +242,9 @@ const SubtleScene = ({ intensity = "standard", className }: SubtleSceneProps) =>
         gl={{ alpha: true, antialias: true, powerPreference: "low-power" }}
         style={{ background: "transparent" }}
       >
-        <ambientLight intensity={0.6} />
-        <directionalLight position={[3, 4, 3]} intensity={0.9} color="#ffffff" />
-        <pointLight position={[-4, 2, -3]} intensity={0.8} color={HEALTHCARE_COLOR} />
         <Suspense fallback={null}>
-          <Orbs />
-          <DriftParticles count={particleCount} />
+          <ParallaxRig />
+          <GridParticles count={particleCount} />
         </Suspense>
       </Canvas>
     </div>
