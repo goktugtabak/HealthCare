@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { AppShell } from "@/components/AppShell";
-import { SectionHeader } from "@/components/SharedComponents";
+import { PageHero } from "@/components/PageHero";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -9,8 +9,9 @@ import { RoleBadge } from "@/components/RoleBadge";
 import { ConfirmationModal } from "@/components/ConfirmationModal";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "@/hooks/use-toast";
+import { cn } from "@/lib/utils";
 import { domainOptions, expertiseOptions } from "@/data/mockData";
-import { Download, Trash2 } from "lucide-react";
+import { Check, Download, Search, Trash2, UserCircle2, X } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -26,6 +27,7 @@ const ProfilePage = () => {
   const { currentUser, updateCurrentUserProfile } = useAuth();
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [tagSearch, setTagSearch] = useState("");
   const [form, setForm] = useState({
     fullName: currentUser?.fullName ?? "",
     institution: currentUser?.institution ?? "",
@@ -109,30 +111,73 @@ const ProfilePage = () => {
       ? [...new Set([...domainOptions, ...expertiseOptions])]
       : expertiseOptions;
 
+  const completeness = currentUser.profileCompleteness;
+  const completenessColor =
+    completeness >= 85
+      ? "bg-success"
+      : completeness >= 60
+        ? "bg-[hsl(var(--info))]"
+        : "bg-[hsl(var(--warning))]";
+
   return (
     <AppShell>
-      <SectionHeader
+      <PageHero
+        eyebrow="Your account"
         title="Profile"
-        description="This is your long-term profile hub for matching, external handoff, and notification preferences."
+        description="Long-term hub for matching signal, external handoff details, and notification preferences."
+        icon={UserCircle2}
+        meta={
+          <div className="flex flex-wrap gap-2">
+            <span className="inline-flex items-center gap-1 rounded-full bg-card px-3 py-1 text-xs font-medium text-foreground ring-1 ring-border/60">
+              <span className="tabular-nums">{completeness}%</span> complete
+            </span>
+            <span className="inline-flex items-center gap-1 rounded-full bg-card px-3 py-1 text-xs font-medium text-muted-foreground ring-1 ring-border/60">
+              {currentUser.role === "engineer" ? currentUser.expertiseTags.length : currentUser.interestTags.length}{" "}
+              {currentUser.role === "engineer" ? "expertise" : "interest"} tags
+            </span>
+          </div>
+        }
+        action={
+          !editing && (
+            <Button size="sm" className="rounded-full px-4" onClick={() => setEditing(true)}>
+              Edit profile
+            </Button>
+          )
+        }
       />
 
       <div className="max-w-3xl space-y-6 animate-fade-in">
-        <div className="flex items-center gap-4 rounded-[28px] border border-border bg-card p-6">
-          <div className="flex h-16 w-16 items-center justify-center rounded-full bg-primary text-xl font-semibold text-primary-foreground">
-            {currentUser.fullName
-              .split(" ")
-              .map((name) => name[0])
-              .join("")
-              .slice(0, 2)}
+        <div className="rounded-[28px] border border-border bg-card p-6">
+          <div className="flex items-start gap-4">
+            <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-primary text-xl font-semibold text-primary-foreground">
+              {currentUser.fullName
+                .split(" ")
+                .map((name) => name[0])
+                .join("")
+                .slice(0, 2)}
+            </div>
+            <div className="min-w-0 flex-1">
+              <h2 className="truncate text-lg font-semibold">{currentUser.fullName}</h2>
+              <p className="truncate text-sm text-muted-foreground">{currentUser.email}</p>
+              <RoleBadge role={currentUser.role} className="mt-1" />
+            </div>
           </div>
-          <div>
-            <h2 className="text-lg font-semibold">{currentUser.fullName}</h2>
-            <p className="text-sm text-muted-foreground">{currentUser.email}</p>
-            <RoleBadge role={currentUser.role} className="mt-1" />
-          </div>
-          <div className="ml-auto text-right">
-            <p className="text-2xl font-semibold">{currentUser.profileCompleteness}%</p>
-            <p className="text-xs text-muted-foreground">Profile complete</p>
+          <div className="mt-5">
+            <div className="mb-1.5 flex items-center justify-between text-xs">
+              <span className="font-medium text-muted-foreground">Profile completeness</span>
+              <span className="font-semibold tabular-nums">{completeness}%</span>
+            </div>
+            <div className="h-2 overflow-hidden rounded-full bg-muted">
+              <div
+                className={cn("h-full rounded-full transition-all", completenessColor)}
+                style={{ width: `${completeness}%` }}
+              />
+            </div>
+            {completeness < 85 && (
+              <p className="mt-2 text-xs text-muted-foreground">
+                Add a bio, tags, and a portfolio link to reach 100% — better signal means better matches.
+              </p>
+            )}
           </div>
         </div>
 
@@ -242,33 +287,84 @@ const ProfilePage = () => {
               </div>
 
               <div>
-                <Label className="text-sm">
-                  {currentUser.role === "healthcare" ? "Interest tags" : "Expertise tags"}
-                </Label>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {tagOptions.map((tag) => {
-                    const isSelected =
-                      currentUser.role === "healthcare"
-                        ? form.interestTags.includes(tag)
-                        : form.expertiseTags.includes(tag);
+                <div className="flex items-center justify-between">
+                  <Label className="text-sm">
+                    {currentUser.role === "healthcare" ? "Interest tags" : "Expertise tags"}
+                  </Label>
+                  <span className="text-xs text-muted-foreground tabular-nums">
+                    {(currentUser.role === "healthcare" ? form.interestTags : form.expertiseTags).length} selected
+                  </span>
+                </div>
 
-                    return (
+                {(currentUser.role === "healthcare" ? form.interestTags : form.expertiseTags).length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-1.5 rounded-2xl border border-border/60 bg-muted/30 p-2">
+                    {(currentUser.role === "healthcare" ? form.interestTags : form.expertiseTags).map((tag) => (
                       <button
                         key={tag}
                         type="button"
                         onClick={() =>
-                          toggleTag(tag, currentUser.role === "healthcare" ? "interestTags" : "expertiseTags")
+                          toggleTag(
+                            tag,
+                            currentUser.role === "healthcare" ? "interestTags" : "expertiseTags",
+                          )
                         }
-                        className={`rounded-full border px-3 py-1.5 text-xs transition-colors ${
-                          isSelected
-                            ? "border-primary bg-primary text-primary-foreground"
-                            : "border-border bg-background text-muted-foreground hover:bg-muted"
-                        }`}
+                        className="group inline-flex items-center gap-1 rounded-full bg-primary px-2.5 py-1 text-xs text-primary-foreground transition-colors hover:bg-primary/90"
                       >
                         {tag}
+                        <X className="h-3 w-3 opacity-70 group-hover:opacity-100" />
                       </button>
-                    );
-                  })}
+                    ))}
+                  </div>
+                )}
+
+                <div className="relative mt-3">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    value={tagSearch}
+                    onChange={(event) => setTagSearch(event.target.value)}
+                    placeholder="Search tags…"
+                    className="pl-9"
+                  />
+                </div>
+
+                <div className="mt-3 flex max-h-56 flex-wrap gap-2 overflow-y-auto">
+                  {tagOptions
+                    .filter((tag) => tag.toLowerCase().includes(tagSearch.toLowerCase()))
+                    .map((tag) => {
+                      const isSelected =
+                        currentUser.role === "healthcare"
+                          ? form.interestTags.includes(tag)
+                          : form.expertiseTags.includes(tag);
+
+                      return (
+                        <button
+                          key={tag}
+                          type="button"
+                          onClick={() =>
+                            toggleTag(
+                              tag,
+                              currentUser.role === "healthcare" ? "interestTags" : "expertiseTags",
+                            )
+                          }
+                          className={cn(
+                            "inline-flex items-center gap-1 rounded-full border px-3 py-1.5 text-xs transition-colors",
+                            isSelected
+                              ? "border-primary bg-primary/10 text-primary"
+                              : "border-border bg-background text-muted-foreground hover:bg-muted",
+                          )}
+                        >
+                          {isSelected && <Check className="h-3 w-3" />}
+                          {tag}
+                        </button>
+                      );
+                    })}
+                  {tagOptions.filter((tag) =>
+                    tag.toLowerCase().includes(tagSearch.toLowerCase()),
+                  ).length === 0 && (
+                    <p className="w-full text-center text-xs text-muted-foreground">
+                      No tags match “{tagSearch}”.
+                    </p>
+                  )}
                 </div>
               </div>
 

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { AppShell } from '@/components/AppShell';
-import { SectionHeader } from '@/components/SharedComponents';
+import { PageHero } from '@/components/PageHero';
+import { ScrollText } from 'lucide-react';
 import { RoleBadge } from '@/components/RoleBadge';
 import { SearchInput, FilterSelect, FilterPanel } from '@/components/FilterComponents';
 import { Button } from '@/components/ui/button';
@@ -23,11 +24,18 @@ const AdminLogsPage = () => {
 
   return (
     <AppShell>
-      <SectionHeader
+      <PageHero
+        eyebrow="Admin"
         title="Activity Logs"
         description="Audit trail of platform activity."
+        icon={ScrollText}
+        meta={
+          <span className="inline-flex items-center gap-1 rounded-full bg-card px-3 py-1 text-xs font-medium text-muted-foreground ring-1 ring-border/60">
+            <span className="tabular-nums">{filtered.length}</span> entries
+          </span>
+        }
         action={
-          <Button variant="outline" size="sm" onClick={() => toast({ title: 'CSV exported', description: 'Activity log has been exported.' })}>
+          <Button variant="outline" size="sm" className="rounded-full" onClick={() => toast({ title: 'CSV exported', description: 'Activity log has been exported.' })}>
             <Download className="h-4 w-4 mr-1" /> Export CSV
           </Button>
         }

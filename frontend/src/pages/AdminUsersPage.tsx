@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { AppShell } from '@/components/AppShell';
-import { SectionHeader } from '@/components/SharedComponents';
+import { PageHero } from '@/components/PageHero';
+import { Users } from 'lucide-react';
 import { RoleBadge } from '@/components/RoleBadge';
 import { FilterSelect, FilterPanel, SearchInput } from '@/components/FilterComponents';
 import { Button } from '@/components/ui/button';
@@ -24,7 +25,17 @@ const AdminUsersPage = () => {
 
   return (
     <AppShell>
-      <SectionHeader title="User Management" description="View and manage platform users." />
+      <PageHero
+        eyebrow="Admin"
+        title="User Management"
+        description="View and manage platform users."
+        icon={Users}
+        meta={
+          <span className="inline-flex items-center gap-1 rounded-full bg-card px-3 py-1 text-xs font-medium text-muted-foreground ring-1 ring-border/60">
+            <span className="tabular-nums">{filtered.length}</span> of {mockUsers.length}
+          </span>
+        }
+      />
 
       <div className="mb-4"><SearchInput value={search} onChange={setSearch} placeholder="Search users..." /></div>
 
