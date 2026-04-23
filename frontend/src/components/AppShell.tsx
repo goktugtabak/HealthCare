@@ -4,6 +4,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { usePlatformData } from "@/contexts/PlatformDataContext";
 import { Sidebar } from "@/components/Sidebar";
 import { TopNav } from "@/components/TopNav";
+import { ChatDock } from "@/components/ChatDock";
 
 export const AppShell = ({ children }: { children: React.ReactNode }) => {
   const { currentUser, logout } = useAuth();
@@ -68,6 +69,8 @@ export const AppShell = ({ children }: { children: React.ReactNode }) => {
           </div>
         </main>
       </div>
+
+      <ChatDock />
     </div>
   );
 };

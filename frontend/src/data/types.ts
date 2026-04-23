@@ -73,6 +73,17 @@ export interface MeetingRequest {
   createdAt: string;
 }
 
+export interface Message {
+  id: string;
+  postId: string;
+  senderId: string;
+  recipientId: string;
+  content: string;
+  ndaAcceptedAt: string | null;
+  readAt: string | null;
+  createdAt: string;
+}
+
 export interface Notification {
   id: string;
   userId: string;
