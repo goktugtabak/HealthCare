@@ -36,3 +36,5 @@ Thumbs.db
 .code-review-graph/
 .claude/
 .mcp.json
+
+tmp/

@@ -6,16 +6,35 @@ import { Sidebar } from "@/components/Sidebar";
 import { TopNav } from "@/components/TopNav";
 import { ChatDock } from "@/components/ChatDock";
 
+const SIDEBAR_COLLAPSED_KEY = "health-ai-sidebar-collapsed";
+
 export const AppShell = ({ children }: { children: React.ReactNode }) => {
   const { currentUser, logout } = useAuth();
   const { notifications } = usePlatformData();
   const navigate = useNavigate();
   const location = useLocation();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(() => {
+    try {
+      return localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "true";
+    } catch {
+      return false;
+    }
+  });
 
   useEffect(() => {
     setMobileMenuOpen(false);
   }, [location.pathname]);
+
+  const handleToggleCollapse = () => {
+    setCollapsed((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(next));
+      } catch {}
+      return next;
+    });
+  };
 
   if (!currentUser) {
     return null;
@@ -42,13 +61,21 @@ export const AppShell = ({ children }: { children: React.ReactNode }) => {
       />
 
       <div className="flex min-h-[calc(100vh-4rem)]">
-        <aside className="sticky top-16 hidden h-[calc(100vh-4rem)] w-72 shrink-0 border-r border-border/70 bg-background lg:block">
-          <Sidebar role={currentUser.role} />
+        <aside
+          className={`sticky top-16 hidden h-[calc(100vh-4rem)] shrink-0 transition-all duration-300 lg:block ${
+            collapsed ? "w-[68px]" : "w-64"
+          }`}
+        >
+          <Sidebar
+            role={currentUser.role}
+            collapsed={collapsed}
+            onToggleCollapse={handleToggleCollapse}
+          />
         </aside>
 
         {mobileMenuOpen && (
-          <div className="fixed inset-0 top-16 z-40 flex bg-slate-950/20 lg:hidden">
-            <aside className="h-[calc(100vh-4rem)] w-72 border-r border-border/70 bg-background shadow-2xl animate-fade-in">
+          <div className="fixed inset-0 top-16 z-40 flex bg-slate-950/40 lg:hidden">
+            <aside className="h-[calc(100vh-4rem)] w-64 shadow-2xl animate-fade-in">
               <Sidebar
                 role={currentUser.role}
                 onNavigate={() => setMobileMenuOpen(false)}
