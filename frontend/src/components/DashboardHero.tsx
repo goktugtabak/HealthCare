@@ -291,7 +291,7 @@ export const buildOnboardingSteps = (
   },
   {
     id: "engage",
-    label: "Review or send a meeting request",
+    label: "Review collaboration requests",
     done: hasActivity,
     to: "/meetings",
     icon: FileText,

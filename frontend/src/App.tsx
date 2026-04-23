@@ -5,6 +5,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { PlatformDataProvider } from "@/contexts/PlatformDataContext";
+import { ChatDockProvider } from "@/contexts/ChatDockContext";
 import LandingPage from "./pages/LandingPage";
 import LoginPage from "./pages/LoginPage";
 import RegisterPage from "./pages/RegisterPage";
@@ -196,9 +197,11 @@ const App = () => (
       <Sonner />
       <PlatformDataProvider>
         <AuthProvider>
-          <BrowserRouter>
-            <AppRoutes />
-          </BrowserRouter>
+          <ChatDockProvider>
+            <BrowserRouter>
+              <AppRoutes />
+            </BrowserRouter>
+          </ChatDockProvider>
         </AuthProvider>
       </PlatformDataProvider>
     </TooltipProvider>

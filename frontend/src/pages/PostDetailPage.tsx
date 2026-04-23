@@ -1,10 +1,12 @@
 import { useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { AppShell } from "@/components/AppShell";
+import { MeetingRequestModal } from "@/components/MeetingRequestModal";
 import { StatusBadge } from "@/components/StatusBadge";
 import { RoleBadge } from "@/components/RoleBadge";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/AuthContext";
+import { useChatDock } from "@/contexts/ChatDockContext";
 import { usePlatformData } from "@/contexts/PlatformDataContext";
 import {
   ArrowLeft,
@@ -12,22 +14,30 @@ import {
   CheckCircle2,
   Clock,
   Eye,
+  FileX2,
   Handshake,
   Lock,
   MapPin,
-  ShieldCheck,
+  MessageCircle,
+  Send,
   Sparkles,
 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
-import { MeetingRequestModal } from "@/components/MeetingRequestModal";
 
 const PostDetailPage = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const { currentUser } = useAuth();
-  const { meetingRequests, posts, setPostStatus, submitMeetingRequest, users } =
-    usePlatformData();
-  const [meetingModalOpen, setMeetingModalOpen] = useState(false);
+  const { openDock } = useChatDock();
+  const {
+    meetingRequests,
+    messages,
+    posts,
+    setPostStatus,
+    submitMeetingRequest,
+    users,
+  } = usePlatformData();
+  const [requestModalOpen, setRequestModalOpen] = useState(false);
 
   const post = useMemo(() => posts.find((candidatePost) => candidatePost.id === id), [id, posts]);
 
@@ -37,8 +47,12 @@ const PostDetailPage = () => {
 
   const owner = users.find((user) => user.id === post.ownerId);
   const isOwner = currentUser.id === post.ownerId;
-  const existingRequest = meetingRequests.find(
-    (request) => request.postId === post.id && request.requesterId === currentUser.id,
+
+  const hasExistingThread = messages.some(
+    (message) =>
+      message.postId === post.id &&
+      (message.senderId === currentUser.id ||
+        message.recipientId === currentUser.id),
   );
 
   if (!isOwner && post.status !== "Active" && currentUser.role !== "admin") {
@@ -80,8 +94,39 @@ const PostDetailPage = () => {
     </div>
   );
 
-  const canRequestMeeting =
-    !isOwner && post.status === "Active" && currentUser.role !== "admin";
+  const canMessageOwner =
+    !isOwner && post.status === "Active" && currentUser.role !== "admin" && owner;
+
+  const latestCollaborationRequest = [...meetingRequests]
+    .filter(
+      (request) =>
+        request.postId === post.id && request.requesterId === currentUser.id,
+    )
+    .sort(
+      (leftRequest, rightRequest) =>
+        new Date(rightRequest.createdAt).getTime() -
+        new Date(leftRequest.createdAt).getTime(),
+    )[0];
+
+  const collaborationApproved =
+    latestCollaborationRequest?.status === "Accepted" ||
+    latestCollaborationRequest?.status === "Scheduled" ||
+    latestCollaborationRequest?.status === "Completed";
+  const collaborationPending = latestCollaborationRequest?.status === "Pending";
+  const collaborationDeclined =
+    latestCollaborationRequest?.status === "Declined" ||
+    latestCollaborationRequest?.status === "Cancelled";
+
+  const handleCollaborationRequest = ({ message }: { message: string }) => {
+    submitMeetingRequest({
+      postId: post.id,
+      requesterId: currentUser.id,
+      requesterRole: currentUser.role,
+      introductoryMessage: message,
+      ndaAccepted: true,
+      proposedSlots: [],
+    });
+  };
 
   return (
     <AppShell>
@@ -135,26 +180,50 @@ const PostDetailPage = () => {
               </span>
             </div>
           </div>
-          {canRequestMeeting && !existingRequest && (
-            <Button
-              size="lg"
-              className="rounded-full px-5 shadow-md"
-              onClick={() => setMeetingModalOpen(true)}
-            >
-              <Clock className="mr-1.5 h-4 w-4" />
-              Request meeting
-            </Button>
-          )}
-          {existingRequest && (
-            <Button
-              size="lg"
-              variant="outline"
-              className="rounded-full px-5"
-              onClick={() => navigate("/meetings")}
-            >
-              <CheckCircle2 className="mr-1.5 h-4 w-4" />
-              Request sent — open in Meetings
-            </Button>
+          {canMessageOwner && (
+            <>
+              {collaborationApproved ? (
+                <Button
+                  size="lg"
+                  className="rounded-full px-6 shadow-md"
+                  onClick={() =>
+                    openDock({ postId: post.id, otherUserId: post.ownerId })
+                  }
+                >
+                  <MessageCircle className="mr-1.5 h-4 w-4" />
+                  {hasExistingThread ? "Open conversation" : "Start conversation"}
+                </Button>
+              ) : collaborationPending ? (
+                <Button
+                  size="lg"
+                  variant="outline"
+                  className="rounded-full px-6"
+                  disabled
+                >
+                  <Clock className="mr-1.5 h-4 w-4" />
+                  Request pending
+                </Button>
+              ) : collaborationDeclined ? (
+                <Button
+                  size="lg"
+                  variant="outline"
+                  className="rounded-full px-6"
+                  disabled
+                >
+                  <Clock className="mr-1.5 h-4 w-4" />
+                  Request declined
+                </Button>
+              ) : (
+                <Button
+                  size="lg"
+                  className="rounded-full px-6 shadow-md"
+                  onClick={() => setRequestModalOpen(true)}
+                >
+                  <Send className="mr-1.5 h-4 w-4" />
+                  Request collaboration
+                </Button>
+              )}
+            </>
           )}
         </div>
       </section>
@@ -192,37 +261,22 @@ const PostDetailPage = () => {
             <p className="text-sm leading-6 text-muted-foreground">{post.highLevelIdea}</p>
           </div>
 
-          <div className="relative overflow-hidden rounded-[28px] border border-primary/20 bg-gradient-to-br from-primary/[0.06] via-card to-accent/[0.05] p-5">
-            <div
-              aria-hidden
-              className="pointer-events-none absolute -right-10 -top-10 h-32 w-32 rounded-full bg-primary/10 blur-3xl"
-            />
-            <div className="relative flex items-start gap-3">
-              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/15 ring-1 ring-primary/20">
-                <ShieldCheck className="h-4 w-4 text-primary" />
+          <div className="rounded-[28px] border border-border bg-muted/30 p-5">
+            <p className="text-sm font-semibold">How it works</p>
+            <ol className="mt-3 space-y-2 text-xs leading-5 text-muted-foreground">
+              <li><strong className="text-foreground">1.</strong> Send a collaboration request for this post.</li>
+              <li><strong className="text-foreground">2.</strong> The post owner reviews and accepts or declines it.</li>
+              <li><strong className="text-foreground">3.</strong> Messaging opens after acceptance.</li>
+            </ol>
+            <div className="mt-3 flex flex-wrap gap-2 text-[11px]">
+              <span className="inline-flex items-center gap-1 rounded-full bg-card px-2 py-0.5 ring-1 ring-border/60">
+                <FileX2 className="h-3 w-3" />
+                No file uploads
               </span>
-              <div className="min-w-0">
-                <p className="text-sm font-semibold">NDA-protected first contact</p>
-                <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                  This page intentionally stays at a high level — no comments, files, or detailed
-                  documents. When you request a meeting, you'll accept a mutual NDA before any
-                  sensitive context is shared. Detailed work happens off-platform after the intro.
-                </p>
-                <div className="mt-3 flex flex-wrap gap-2 text-[11px]">
-                  <span className="inline-flex items-center gap-1 rounded-full bg-card px-2 py-0.5 ring-1 ring-border/60">
-                    <CheckCircle2 className="h-3 w-3 text-success" />
-                    Mutual NDA
-                  </span>
-                  <span className="inline-flex items-center gap-1 rounded-full bg-card px-2 py-0.5 ring-1 ring-border/60">
-                    <CheckCircle2 className="h-3 w-3 text-success" />
-                    No file uploads
-                  </span>
-                  <span className="inline-flex items-center gap-1 rounded-full bg-card px-2 py-0.5 ring-1 ring-border/60">
-                    <CheckCircle2 className="h-3 w-3 text-success" />
-                    External handoff
-                  </span>
-                </div>
-              </div>
+              <span className="inline-flex items-center gap-1 rounded-full bg-card px-2 py-0.5 ring-1 ring-border/60">
+                <CheckCircle2 className="h-3 w-3 text-success" />
+                Meetings happen off-platform
+              </span>
             </div>
           </div>
         </div>
@@ -250,7 +304,7 @@ const PostDetailPage = () => {
                 {owner.city}, {owner.country}
               </p>
               <p className="mt-3 text-xs leading-5 text-muted-foreground">
-                Contact details are shared only after a meeting request is scheduled.
+                Share contact details inside the chat when you're both ready to move off-platform.
               </p>
             </div>
           )}
@@ -304,19 +358,10 @@ const PostDetailPage = () => {
       </div>
 
       <MeetingRequestModal
-        open={meetingModalOpen}
-        onOpenChange={setMeetingModalOpen}
+        open={requestModalOpen}
+        onOpenChange={setRequestModalOpen}
         postTitle={post.title}
-        onSubmit={({ message, ndaAccepted, proposedSlots }) => {
-          submitMeetingRequest({
-            postId: post.id,
-            requesterId: currentUser.id,
-            requesterRole: currentUser.role,
-            introductoryMessage: message,
-            ndaAccepted,
-            proposedSlots,
-          });
-        }}
+        onSubmit={handleCollaborationRequest}
       />
     </AppShell>
   );

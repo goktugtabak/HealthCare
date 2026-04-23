@@ -6,6 +6,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { MeetingRequestModal } from "@/components/MeetingRequestModal";
 import { AppRoutes } from "@/App";
 import { AuthProvider } from "@/contexts/AuthContext";
+import { ChatDockProvider } from "@/contexts/ChatDockContext";
 import { PlatformDataProvider } from "@/contexts/PlatformDataContext";
 import {
   mockMeetingRequests,
@@ -49,9 +50,11 @@ const renderApp = (initialPath: string) =>
       <TooltipProvider>
         <PlatformDataProvider>
           <AuthProvider>
-            <MemoryRouter initialEntries={[initialPath]}>
-              <AppRoutes />
-            </MemoryRouter>
+            <ChatDockProvider>
+              <MemoryRouter initialEntries={[initialPath]}>
+                <AppRoutes />
+              </MemoryRouter>
+            </ChatDockProvider>
           </AuthProvider>
         </PlatformDataProvider>
       </TooltipProvider>
@@ -76,19 +79,23 @@ describe("app flows", () => {
     ).toBeInTheDocument();
   });
 
-  it("shows the engineer dashboard with a visible new post action", async () => {
+  it("shows the engineer dashboard with the active opportunity feed", async () => {
     seedState({ currentUserId: "u2" });
     renderApp("/dashboard");
 
-    expect(await screen.findByRole("button", { name: /new post/i })).toBeInTheDocument();
-    expect(screen.getByText(/latest opportunities/i)).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: /latest opportunities/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: /recent conversations/i }),
+    ).toBeInTheDocument();
   });
 
   it("keeps explore ordered newest-first", async () => {
     seedState({ currentUserId: "u1" });
     const { container } = renderApp("/explore");
 
-    await screen.findByText(/sorted by newest first/i);
+    await screen.findByRole("heading", { name: /explore posts/i });
 
     const cardHeadings = Array.from(container.querySelectorAll("article h3")).map((node) =>
       node.textContent?.trim(),
@@ -111,19 +118,61 @@ describe("app flows", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: /send request/i }));
 
-    expect(screen.getByText(/please write an introductory message/i)).toBeInTheDocument();
     expect(
-      screen.getByText(/you must accept the confidentiality terms/i),
+      screen.getByText(/please write a collaboration request message/i),
     ).toBeInTheDocument();
-    expect(screen.getByText(/please propose at least one time slot/i)).toBeInTheDocument();
     expect(handleSubmit).not.toHaveBeenCalled();
+  });
+
+  it("keeps messaging locked while a collaboration request is pending", async () => {
+    seedState({ currentUserId: "u2" });
+    renderApp("/posts/p1");
+
+    const pendingButton = await screen.findByRole("button", {
+      name: /request pending/i,
+    });
+
+    expect(pendingButton).toBeDisabled();
+    expect(
+      screen.queryByRole("button", { name: /message author|start conversation/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("lets users message after a collaboration request is accepted", async () => {
+    const meetingRequests = clone(mockMeetingRequests);
+    const request = meetingRequests.find((candidate) => candidate.id === "mr1");
+    if (request) {
+      request.status = "Accepted";
+      request.selectedSlot = null;
+    }
+
+    seedState({ meetingRequests, currentUserId: "u2" });
+    renderApp("/posts/p1");
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: /start conversation/i }),
+    );
+
+    expect(screen.queryByText(/accept the mutual nda/i)).not.toBeInTheDocument();
+
+    const messageBox = await screen.findByRole("textbox");
+    expect(messageBox).toBeEnabled();
+
+    fireEvent.change(messageBox, {
+      target: { value: "Hello from the confidential post test" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /send message/i }));
+
+    expect(
+      await screen.findByText("Hello from the confidential post test"),
+    ).toBeInTheDocument();
   });
 
   it("reveals external handoff details for scheduled meetings", async () => {
     seedState({ currentUserId: "u3" });
     renderApp("/meetings");
 
-    expect(await screen.findByText(/continue off-platform/i)).toBeInTheDocument();
+    expect(await screen.findByText(/messaging unlocked/i)).toBeInTheDocument();
     expect(screen.getByText(/mehmet\.demir@metu\.edu\.tr/i)).toBeInTheDocument();
   });
 });

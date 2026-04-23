@@ -1,4 +1,4 @@
-import type { ActivityLog, MeetingRequest, Notification, Post, User } from "./types";
+import type { ActivityLog, MeetingRequest, Message, Notification, Post, User } from "./types";
 
 export const mockUsers: User[] = [
   {
@@ -428,6 +428,8 @@ export const mockNotifications: Notification[] = [
     read: true,
   },
 ];
+
+export const mockMessages: Message[] = [];
 
 export const mockActivityLogs: ActivityLog[] = [
   {

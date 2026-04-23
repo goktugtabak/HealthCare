@@ -1,11 +1,12 @@
-import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import {
   mockMeetingRequests,
+  mockMessages,
   mockNotifications,
   mockPosts,
   mockUsers,
 } from "@/data/mockData";
-import type { MeetingRequest, Notification, Post, PostStatus, User } from "@/data/types";
+import type { MeetingRequest, Message, Notification, Post, PostStatus, User } from "@/data/types";
 
 const STORAGE_KEY = "health-ai-platform-data";
 
@@ -30,19 +31,36 @@ interface CreatePostInput {
 
 interface UpdatePostInput extends Omit<CreatePostInput, "ownerId" | "ownerRole"> {}
 
+interface SendMessageInput {
+  postId: string;
+  senderId: string;
+  recipientId: string;
+  content: string;
+  ndaAccepted?: boolean;
+}
+
+interface ConversationSummary {
+  postId: string;
+  otherUserId: string;
+  lastMessage: Message;
+  unreadCount: number;
+  ndaAccepted: boolean;
+}
+
 interface SubmitMeetingRequestInput {
   postId: string;
   requesterId: string;
   requesterRole: User["role"];
   introductoryMessage: string;
-  ndaAccepted: boolean;
-  proposedSlots: string[];
+  ndaAccepted?: boolean;
+  proposedSlots?: string[];
 }
 
 interface PlatformDataContextType {
   users: User[];
   posts: Post[];
   meetingRequests: MeetingRequest[];
+  messages: Message[];
   notifications: Notification[];
   addUser: (user: User) => void;
   updateUser: (userId: string, updates: Partial<User>) => void;
@@ -50,8 +68,13 @@ interface PlatformDataContextType {
   updatePost: (postId: string, updates: UpdatePostInput) => void;
   setPostStatus: (postId: string, status: PostStatus) => void;
   submitMeetingRequest: (input: SubmitMeetingRequestInput) => MeetingRequest;
-  acceptMeetingRequest: (requestId: string, slot: string) => void;
+  acceptMeetingRequest: (requestId: string, slot?: string) => void;
   declineMeetingRequest: (requestId: string) => void;
+  sendMessage: (input: SendMessageInput) => Message;
+  acceptMessageNda: (postId: string, otherUserId: string, currentUserId: string) => void;
+  markThreadRead: (postId: string, otherUserId: string, currentUserId: string) => void;
+  getThread: (postId: string, otherUserId: string, currentUserId: string) => Message[];
+  getConversations: (currentUserId: string) => ConversationSummary[];
   markNotificationRead: (notificationId: string) => void;
   markAllNotificationsRead: (userId: string) => void;
 }
@@ -60,6 +83,7 @@ interface PersistedState {
   users: User[];
   posts: Post[];
   meetingRequests: MeetingRequest[];
+  messages: Message[];
   notifications: Notification[];
 }
 
@@ -67,6 +91,7 @@ const defaultState: PersistedState = {
   users: mockUsers,
   posts: mockPosts,
   meetingRequests: mockMeetingRequests,
+  messages: mockMessages,
   notifications: mockNotifications,
 };
 
@@ -93,6 +118,7 @@ const loadPersistedState = (): PersistedState => {
       users: parsed.users ?? defaultState.users,
       posts: parsed.posts ?? defaultState.posts,
       meetingRequests: parsed.meetingRequests ?? defaultState.meetingRequests,
+      messages: parsed.messages ?? defaultState.messages,
       notifications: parsed.notifications ?? defaultState.notifications,
     };
   } catch {
@@ -140,6 +166,7 @@ export const PlatformDataProvider = ({ children }: { children: React.ReactNode }
   const [meetingRequests, setMeetingRequests] = useState<MeetingRequest[]>(
     persistedState.meetingRequests,
   );
+  const [messages, setMessages] = useState<Message[]>(persistedState.messages);
   const [notifications, setNotifications] = useState<Notification[]>(
     persistedState.notifications,
   );
@@ -153,11 +180,12 @@ export const PlatformDataProvider = ({ children }: { children: React.ReactNode }
       users,
       posts,
       meetingRequests,
+      messages,
       notifications,
     };
 
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
-  }, [meetingRequests, notifications, posts, users]);
+  }, [meetingRequests, messages, notifications, posts, users]);
 
   const addUser = (user: User) => {
     setUsers((currentUsers) => [mergeUser(user, {}), ...currentUsers]);
@@ -244,8 +272,8 @@ export const PlatformDataProvider = ({ children }: { children: React.ReactNode }
       requesterId: input.requesterId,
       requesterRole: input.requesterRole,
       introductoryMessage: input.introductoryMessage,
-      ndaAccepted: input.ndaAccepted,
-      proposedSlots: input.proposedSlots,
+      ndaAccepted: input.ndaAccepted ?? true,
+      proposedSlots: input.proposedSlots ?? [],
       selectedSlot: null,
       status: "Pending",
       createdAt: new Date().toISOString(),
@@ -276,7 +304,7 @@ export const PlatformDataProvider = ({ children }: { children: React.ReactNode }
     return request;
   };
 
-  const acceptMeetingRequest = (requestId: string, slot: string) => {
+  const acceptMeetingRequest = (requestId: string, slot?: string) => {
     const acceptedRequest = meetingRequests.find((request) => request.id === requestId);
     const relatedPost = posts.find((post) => post.id === acceptedRequest?.postId);
 
@@ -285,23 +313,25 @@ export const PlatformDataProvider = ({ children }: { children: React.ReactNode }
         request.id === requestId
           ? {
               ...request,
-              status: "Scheduled",
-              selectedSlot: slot,
+              status: slot ? "Scheduled" : "Accepted",
+              selectedSlot: slot ?? null,
             }
           : request,
       ),
     );
 
     if (acceptedRequest && relatedPost) {
-      setPostStatus(relatedPost.id, "Meeting Scheduled");
+      if (slot) {
+        setPostStatus(relatedPost.id, "Meeting Scheduled");
+      }
 
       setNotifications((currentNotifications) => [
         {
           id: createId("notif"),
           userId: acceptedRequest.requesterId,
           type: "meeting_confirmed",
-          title: "External handoff is ready",
-          message: `Your intro meeting for ${relatedPost.title} was scheduled. Contact details are now available in Meetings.`,
+          title: "Collaboration request accepted",
+          message: `Your collaboration request for ${relatedPost.title} was accepted. Messaging is now available.`,
           createdAt: new Date().toISOString(),
           read: false,
         },
@@ -309,8 +339,8 @@ export const PlatformDataProvider = ({ children }: { children: React.ReactNode }
           id: createId("notif"),
           userId: relatedPost.ownerId,
           type: "post_status",
-          title: "Meeting scheduled",
-          message: `A first-contact meeting for ${relatedPost.title} is set. Continue the detailed discussion off-platform.`,
+          title: "Collaboration request accepted",
+          message: `You accepted a collaboration request for ${relatedPost.title}. Messaging is now available.`,
           createdAt: new Date().toISOString(),
           read: false,
         },
@@ -350,6 +380,177 @@ export const PlatformDataProvider = ({ children }: { children: React.ReactNode }
     }
   };
 
+  const threadKey = (postId: string, a: string, b: string) =>
+    `${postId}::${[a, b].sort().join("::")}`;
+
+  const threadHasAcceptedNda = (
+    list: Message[],
+    postId: string,
+    a: string,
+    b: string,
+  ) =>
+    list.some(
+      (message) =>
+        message.postId === postId &&
+        ((message.senderId === a && message.recipientId === b) ||
+          (message.senderId === b && message.recipientId === a)) &&
+        message.ndaAcceptedAt !== null,
+    );
+
+  const sendMessage = useCallback((input: SendMessageInput) => {
+    const now = new Date().toISOString();
+    let createdMessage: Message | null = null;
+
+    setMessages((current) => {
+      const ndaAlreadyAccepted = threadHasAcceptedNda(
+        current,
+        input.postId,
+        input.senderId,
+        input.recipientId,
+      );
+      const message: Message = {
+        id: createId("msg"),
+        postId: input.postId,
+        senderId: input.senderId,
+        recipientId: input.recipientId,
+        content: input.content,
+        ndaAcceptedAt:
+          ndaAlreadyAccepted || input.ndaAccepted ? now : null,
+        readAt: null,
+        createdAt: now,
+      };
+      createdMessage = message;
+      return [...current, message];
+    });
+
+    setNotifications((current) => {
+      const post = posts.find((candidate) => candidate.id === input.postId);
+      const sender = users.find((user) => user.id === input.senderId);
+      if (!post) return current;
+      return [
+        {
+          id: createId("notif"),
+          userId: input.recipientId,
+          type: "interest",
+          title: "New message",
+          message: `${sender?.fullName ?? "A platform member"} sent you a message about ${post.title}.`,
+          createdAt: now,
+          read: false,
+        },
+        ...current,
+      ];
+    });
+
+    return createdMessage as unknown as Message;
+  }, [posts, users]);
+
+  const acceptMessageNda = useCallback((
+    postId: string,
+    otherUserId: string,
+    currentUserId: string,
+  ) => {
+    setMessages((current) => {
+      const hasPending = current.some((message) => {
+        const isInThread =
+          message.postId === postId &&
+          ((message.senderId === currentUserId && message.recipientId === otherUserId) ||
+            (message.senderId === otherUserId && message.recipientId === currentUserId));
+        return isInThread && !message.ndaAcceptedAt;
+      });
+      if (!hasPending) return current;
+      const now = new Date().toISOString();
+      return current.map((message) => {
+        const isInThread =
+          message.postId === postId &&
+          ((message.senderId === currentUserId && message.recipientId === otherUserId) ||
+            (message.senderId === otherUserId && message.recipientId === currentUserId));
+        if (!isInThread || message.ndaAcceptedAt) return message;
+        return { ...message, ndaAcceptedAt: now };
+      });
+    });
+  }, []);
+
+  const markThreadRead = useCallback((
+    postId: string,
+    otherUserId: string,
+    currentUserId: string,
+  ) => {
+    setMessages((current) => {
+      const hasUnread = current.some(
+        (message) =>
+          message.postId === postId &&
+          message.senderId === otherUserId &&
+          message.recipientId === currentUserId &&
+          !message.readAt,
+      );
+      if (!hasUnread) return current;
+      const now = new Date().toISOString();
+      return current.map((message) =>
+        message.postId === postId &&
+        message.senderId === otherUserId &&
+        message.recipientId === currentUserId &&
+        !message.readAt
+          ? { ...message, readAt: now }
+          : message,
+      );
+    });
+  }, []);
+
+  const getThread = useCallback((
+    postId: string,
+    otherUserId: string,
+    currentUserId: string,
+  ) =>
+    messages
+      .filter(
+        (message) =>
+          message.postId === postId &&
+          ((message.senderId === currentUserId && message.recipientId === otherUserId) ||
+            (message.senderId === otherUserId && message.recipientId === currentUserId)),
+      )
+      .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()),
+  [messages]);
+
+  const getConversations = useCallback((currentUserId: string): ConversationSummary[] => {
+    const grouped = new Map<string, Message[]>();
+    for (const message of messages) {
+      if (message.senderId !== currentUserId && message.recipientId !== currentUserId) continue;
+      const other =
+        message.senderId === currentUserId ? message.recipientId : message.senderId;
+      const key = threadKey(message.postId, currentUserId, other);
+      const bucket = grouped.get(key) ?? [];
+      bucket.push(message);
+      grouped.set(key, bucket);
+    }
+
+    const summaries: ConversationSummary[] = [];
+    for (const bucket of grouped.values()) {
+      const sorted = [...bucket].sort(
+        (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+      );
+      const last = sorted[sorted.length - 1];
+      const otherUserId =
+        last.senderId === currentUserId ? last.recipientId : last.senderId;
+      const unreadCount = sorted.filter(
+        (message) => message.recipientId === currentUserId && !message.readAt,
+      ).length;
+      const ndaAccepted = sorted.some((message) => message.ndaAcceptedAt !== null);
+      summaries.push({
+        postId: last.postId,
+        otherUserId,
+        lastMessage: last,
+        unreadCount,
+        ndaAccepted,
+      });
+    }
+
+    return summaries.sort(
+      (a, b) =>
+        new Date(b.lastMessage.createdAt).getTime() -
+        new Date(a.lastMessage.createdAt).getTime(),
+    );
+  }, [messages]);
+
   const markNotificationRead = (notificationId: string) => {
     setNotifications((currentNotifications) =>
       currentNotifications.map((notification) =>
@@ -374,6 +575,7 @@ export const PlatformDataProvider = ({ children }: { children: React.ReactNode }
         users,
         posts,
         meetingRequests,
+        messages,
         notifications,
         addUser,
         updateUser,
@@ -383,6 +585,11 @@ export const PlatformDataProvider = ({ children }: { children: React.ReactNode }
         submitMeetingRequest,
         acceptMeetingRequest,
         declineMeetingRequest,
+        sendMessage,
+        acceptMessageNda,
+        markThreadRead,
+        getThread,
+        getConversations,
         markNotificationRead,
         markAllNotificationsRead,
       }}

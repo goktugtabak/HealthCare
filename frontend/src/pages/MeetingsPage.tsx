@@ -1,34 +1,43 @@
 import { useMemo, useState } from "react";
-import { AppShell } from "@/components/AppShell";
-import { PageHero } from "@/components/PageHero";
-import { EmptyState } from "@/components/SharedComponents";
-import { StatusBadge } from "@/components/StatusBadge";
-import { RoleBadge } from "@/components/RoleBadge";
-import { Button } from "@/components/ui/button";
-import { useAuth } from "@/contexts/AuthContext";
-import { usePlatformData } from "@/contexts/PlatformDataContext";
-import { toast } from "@/hooks/use-toast";
-import { cn } from "@/lib/utils";
 import {
   Calendar,
   CalendarClock,
   CheckCircle,
   Inbox,
   Mail,
+  MessageCircle,
   Phone,
   Send,
   Share2,
   ShieldCheck,
   XCircle,
 } from "lucide-react";
+import { AppShell } from "@/components/AppShell";
+import { PageHero } from "@/components/PageHero";
+import { RoleBadge } from "@/components/RoleBadge";
+import { EmptyState } from "@/components/SharedComponents";
+import { StatusBadge } from "@/components/StatusBadge";
+import { Button } from "@/components/ui/button";
+import { useAuth } from "@/contexts/AuthContext";
+import { useChatDock } from "@/contexts/ChatDockContext";
+import { usePlatformData } from "@/contexts/PlatformDataContext";
 import type { MeetingRequest } from "@/data/types";
+import { toast } from "@/hooks/use-toast";
+import { cn } from "@/lib/utils";
 
 type Direction = "incoming" | "outgoing";
-type StatusFilter = "all" | "Pending" | "Scheduled" | "Completed" | "Declined";
+type StatusFilter =
+  | "all"
+  | "Pending"
+  | "Accepted"
+  | "Scheduled"
+  | "Completed"
+  | "Declined";
 
 const STATUS_TABS: { key: StatusFilter; label: string }[] = [
   { key: "all", label: "All" },
   { key: "Pending", label: "Pending" },
+  { key: "Accepted", label: "Accepted" },
   { key: "Scheduled", label: "Scheduled" },
   { key: "Completed", label: "Completed" },
   { key: "Declined", label: "Declined" },
@@ -36,8 +45,9 @@ const STATUS_TABS: { key: StatusFilter; label: string }[] = [
 
 const matchesStatus = (request: MeetingRequest, filter: StatusFilter) => {
   if (filter === "all") return true;
-  if (filter === "Declined")
+  if (filter === "Declined") {
     return request.status === "Declined" || request.status === "Cancelled";
+  }
   return request.status === filter;
 };
 
@@ -53,17 +63,30 @@ const contactIcon = (method?: string) => {
 const sortByCreated = (a: MeetingRequest, b: MeetingRequest) =>
   new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
 
+const formatSlot = (slot: string) => new Date(slot).toLocaleString();
+
 const MeetingsPage = () => {
   const { currentUser } = useAuth();
-  const { acceptMeetingRequest, declineMeetingRequest, meetingRequests, posts, users } =
-    usePlatformData();
+  const { openDock } = useChatDock();
+  const {
+    acceptMeetingRequest,
+    declineMeetingRequest,
+    meetingRequests,
+    posts,
+    users,
+  } = usePlatformData();
   const [filter, setFilter] = useState<StatusFilter>("all");
 
-  if (!currentUser) return null;
+  const currentUserId = currentUser?.id;
 
   const myPostIds = useMemo(
-    () => posts.filter((post) => post.ownerId === currentUser.id).map((post) => post.id),
-    [posts, currentUser.id],
+    () =>
+      currentUserId
+        ? posts
+            .filter((post) => post.ownerId === currentUserId)
+            .map((post) => post.id)
+        : [],
+    [posts, currentUserId],
   );
 
   const incoming = useMemo(
@@ -76,41 +99,80 @@ const MeetingsPage = () => {
 
   const outgoing = useMemo(
     () =>
-      [...meetingRequests]
-        .filter((request) => request.requesterId === currentUser.id)
-        .sort(sortByCreated),
-    [meetingRequests, currentUser.id],
+      currentUserId
+        ? [...meetingRequests]
+            .filter((request) => request.requesterId === currentUserId)
+            .sort(sortByCreated)
+        : [],
+    [meetingRequests, currentUserId],
+  );
+
+  const pendingIncoming = useMemo(
+    () => incoming.filter((request) => request.status === "Pending"),
+    [incoming],
+  );
+
+  const visibleIncoming = useMemo(
+    () => incoming.filter((request) => matchesStatus(request, filter)),
+    [incoming, filter],
+  );
+
+  const visibleOutgoing = useMemo(
+    () => outgoing.filter((request) => matchesStatus(request, filter)),
+    [outgoing, filter],
   );
 
   const allRequests = useMemo(
     () => [
-      ...incoming.map((request) => ({ request, type: "incoming" as Direction })),
-      ...outgoing.map((request) => ({ request, type: "outgoing" as Direction })),
+      ...incoming.map((request) => ({
+        request,
+        type: "incoming" as Direction,
+      })),
+      ...outgoing.map((request) => ({
+        request,
+        type: "outgoing" as Direction,
+      })),
     ],
     [incoming, outgoing],
   );
 
-  const pendingIncoming = incoming.filter((request) => request.status === "Pending");
-  const scheduledCount = allRequests.filter(({ request }) => request.status === "Scheduled").length;
-  const completedCount = allRequests.filter(({ request }) => request.status === "Completed").length;
+  if (!currentUser) return null;
 
-  const visibleIncoming = incoming.filter((request) => matchesStatus(request, filter));
-  const visibleOutgoing = outgoing.filter((request) => matchesStatus(request, filter));
+  const scheduledCount = allRequests.filter(
+    ({ request }) => request.status === "Scheduled",
+  ).length;
+  const acceptedCount = allRequests.filter(
+    ({ request }) => request.status === "Accepted",
+  ).length;
+  const completedCount = allRequests.filter(
+    ({ request }) => request.status === "Completed",
+  ).length;
   const hasNothing = allRequests.length === 0;
-  const hasNothingForFilter = !hasNothing && visibleIncoming.length === 0 && visibleOutgoing.length === 0;
+  const hasNothingForFilter =
+    !hasNothing && visibleIncoming.length === 0 && visibleOutgoing.length === 0;
 
-  const RequestCard = ({ request, type }: { request: MeetingRequest; type: Direction }) => {
+  const RequestCard = ({
+    request,
+    type,
+  }: {
+    request: MeetingRequest;
+    type: Direction;
+  }) => {
     const post = posts.find((candidatePost) => candidatePost.id === request.postId);
     const requester = users.find((user) => user.id === request.requesterId);
     const owner = post ? users.find((user) => user.id === post.ownerId) : undefined;
     const handoffUser = type === "incoming" ? requester : owner;
     const ContactIcon = contactIcon(handoffUser?.preferredContact?.method);
     const isUrgent = type === "incoming" && request.status === "Pending";
+    const isApproved =
+      request.status === "Accepted" ||
+      request.status === "Scheduled" ||
+      request.status === "Completed";
 
     return (
       <div
         className={cn(
-          "rounded-[28px] border bg-card p-5 animate-fade-in transition-shadow",
+          "animate-fade-in rounded-[28px] border bg-card p-5 transition-shadow",
           isUrgent
             ? "border-[hsl(var(--warning))]/40 shadow-[0_8px_24px_-12px_hsl(var(--warning)/0.35)]"
             : "border-border",
@@ -118,11 +180,14 @@ const MeetingsPage = () => {
       >
         <div className="mb-3 flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <p className="truncate text-sm font-semibold">{post?.title}</p>
+            <p className="truncate text-sm font-semibold">
+              {post?.title ?? "Deleted post"}
+            </p>
             <div className="mt-1 flex flex-wrap items-center gap-2">
               {requester && (
                 <span className="text-xs text-muted-foreground">
-                  {type === "incoming" ? "From:" : "Requested by"} {requester.fullName}
+                  {type === "incoming" ? "From:" : "Requested by"}{" "}
+                  {requester.fullName}
                 </span>
               )}
               {requester && <RoleBadge role={requester.role} showIcon={false} />}
@@ -135,45 +200,44 @@ const MeetingsPage = () => {
           {request.introductoryMessage}
         </p>
 
-        <div className="mb-3">
-          <p className="mb-1 text-xs font-medium">Proposed slots</p>
-          <div className="flex flex-wrap gap-2">
-            {request.proposedSlots.map((slot) => (
-              <span
-                key={slot}
-                className={cn(
-                  "flex items-center gap-1 rounded-full border px-3 py-1 text-xs",
-                  request.selectedSlot === slot
-                    ? "border-success/20 bg-success/10 text-success"
-                    : "border-border text-muted-foreground",
-                )}
-              >
-                <Calendar className="h-3 w-3" />
-                {new Date(slot).toLocaleString()}
-              </span>
-            ))}
+        {request.proposedSlots.length > 0 && (
+          <div className="mb-3">
+            <p className="mb-1 text-xs font-medium">Proposed slots</p>
+            <div className="flex flex-wrap gap-2">
+              {request.proposedSlots.map((slot) => (
+                <span
+                  key={slot}
+                  className={cn(
+                    "flex items-center gap-1 rounded-full border px-3 py-1 text-xs",
+                    request.selectedSlot === slot
+                      ? "border-success/20 bg-success/10 text-success"
+                      : "border-border text-muted-foreground",
+                  )}
+                >
+                  <Calendar className="h-3 w-3" />
+                  {formatSlot(slot)}
+                </span>
+              ))}
+            </div>
           </div>
-        </div>
+        )}
 
         {isUrgent && (
           <div className="flex flex-wrap gap-2">
-            {request.proposedSlots.map((slot) => (
-              <Button
-                key={slot}
-                size="sm"
-                variant="outline"
-                onClick={() => {
-                  acceptMeetingRequest(request.id, slot);
-                  toast({
-                    title: "Meeting scheduled",
-                    description: `First meeting confirmed for ${new Date(slot).toLocaleString()}.`,
-                  });
-                }}
-              >
-                <CheckCircle className="mr-1 h-3 w-3" />
-                Accept {new Date(slot).toLocaleDateString()}
-              </Button>
-            ))}
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                acceptMeetingRequest(request.id);
+                toast({
+                  title: "Request accepted",
+                  description: "Messaging is now available for both sides.",
+                });
+              }}
+            >
+              <CheckCircle className="mr-1 h-3 w-3" />
+              Accept request
+            </Button>
             <Button
               size="sm"
               variant="ghost"
@@ -188,23 +252,41 @@ const MeetingsPage = () => {
           </div>
         )}
 
-        {request.status === "Scheduled" && handoffUser?.preferredContact && (
+        {isApproved && handoffUser && (
           <div className="mt-4 rounded-2xl border border-primary/15 bg-primary/5 p-4">
             <div className="flex items-start gap-2">
               <ShieldCheck className="mt-0.5 h-4 w-4 text-primary" />
               <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium">Continue off-platform</p>
+                <p className="text-sm font-medium">Messaging unlocked</p>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  The introduction is scheduled. Detailed discussion, files, and follow-up are now
-                  the responsibility of both parties.
+                  The collaboration request was accepted. You can now continue
+                  the conversation in Messages.
                 </p>
-                <div className="mt-3 flex items-center gap-2 text-sm">
-                  <ContactIcon className="h-4 w-4 text-primary" />
-                  <span className="font-medium">{handoffUser.preferredContact.method}:</span>
-                  <span className="truncate text-muted-foreground">
-                    {handoffUser.preferredContact.value}
-                  </span>
-                </div>
+                <Button
+                  size="sm"
+                  className="mt-3 rounded-full"
+                  onClick={() =>
+                    openDock({
+                      postId: request.postId,
+                      otherUserId: handoffUser.id,
+                    })
+                  }
+                >
+                  <MessageCircle className="mr-1 h-3.5 w-3.5" />
+                  Open chat
+                </Button>
+                {request.status === "Scheduled" &&
+                  handoffUser.preferredContact && (
+                    <div className="mt-3 flex items-center gap-2 text-sm">
+                      <ContactIcon className="h-4 w-4 text-primary" />
+                      <span className="font-medium">
+                        {handoffUser.preferredContact.method}:
+                      </span>
+                      <span className="truncate text-muted-foreground">
+                        {handoffUser.preferredContact.value}
+                      </span>
+                    </div>
+                  )}
               </div>
             </div>
           </div>
@@ -217,14 +299,15 @@ const MeetingsPage = () => {
     <AppShell>
       <PageHero
         eyebrow="Coordination"
-        title="Meetings"
-        description="Manage intro requests, confirm the first slot, and hand off detailed discussion to external channels."
+        title="Collaboration requests"
+        description="Review incoming requests, accept the right collaborators, and unlock messaging after approval."
         icon={CalendarClock}
         meta={
           <div className="flex flex-wrap gap-2">
             {pendingIncoming.length > 0 ? (
               <span className="inline-flex items-center gap-1 rounded-full bg-[hsl(var(--warning))]/15 px-3 py-1 text-xs font-semibold text-[hsl(var(--warning))] ring-1 ring-[hsl(var(--warning))]/25">
-                <span className="tabular-nums">{pendingIncoming.length}</span> awaiting your reply
+                <span className="tabular-nums">{pendingIncoming.length}</span>
+                awaiting your reply
               </span>
             ) : (
               <span className="inline-flex items-center gap-1 rounded-full bg-card px-3 py-1 text-xs font-medium text-muted-foreground ring-1 ring-border/60">
@@ -233,12 +316,20 @@ const MeetingsPage = () => {
             )}
             {scheduledCount > 0 && (
               <span className="inline-flex items-center gap-1 rounded-full bg-success/10 px-3 py-1 text-xs font-medium text-success ring-1 ring-success/20">
-                <span className="tabular-nums">{scheduledCount}</span> scheduled
+                <span className="tabular-nums">{scheduledCount}</span>
+                scheduled
+              </span>
+            )}
+            {acceptedCount > 0 && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-success/10 px-3 py-1 text-xs font-medium text-success ring-1 ring-success/20">
+                <span className="tabular-nums">{acceptedCount}</span>
+                accepted
               </span>
             )}
             {completedCount > 0 && (
               <span className="inline-flex items-center gap-1 rounded-full bg-muted px-3 py-1 text-xs font-medium text-muted-foreground ring-1 ring-border/60">
-                <span className="tabular-nums">{completedCount}</span> completed
+                <span className="tabular-nums">{completedCount}</span>
+                completed
               </span>
             )}
           </div>
@@ -248,8 +339,8 @@ const MeetingsPage = () => {
       {hasNothing ? (
         <EmptyState
           icon={CalendarClock}
-          title="No meeting requests yet"
-          description="When someone wants to talk about one of your posts — or you reach out to a collaborator — requests will appear here."
+          title="No collaboration requests yet"
+          description="When someone requests to collaborate on one of your posts, or you reach out to a collaborator, requests will appear here."
         />
       ) : (
         <>
@@ -263,7 +354,11 @@ const MeetingsPage = () => {
               </div>
               <div className="space-y-3">
                 {pendingIncoming.map((request) => (
-                  <RequestCard key={request.id} request={request} type="incoming" />
+                  <RequestCard
+                    key={request.id}
+                    request={request}
+                    type="incoming"
+                  />
                 ))}
               </div>
             </div>
@@ -275,9 +370,11 @@ const MeetingsPage = () => {
           >
             {STATUS_TABS.map((tab) => {
               const totalForTab =
-                countByStatus(incoming, tab.key) + countByStatus(outgoing, tab.key);
+                countByStatus(incoming, tab.key) +
+                countByStatus(outgoing, tab.key);
               if (totalForTab === 0 && tab.key !== "all") return null;
               const isActive = filter === tab.key;
+
               return (
                 <button
                   key={tab.key}
@@ -330,10 +427,16 @@ const MeetingsPage = () => {
                           !(filter === "all" && request.status === "Pending"),
                       )
                       .map((request) => (
-                        <RequestCard key={request.id} request={request} type="incoming" />
+                        <RequestCard
+                          key={request.id}
+                          request={request}
+                          type="incoming"
+                        />
                       ))}
                     {filter === "all" &&
-                      visibleIncoming.every((request) => request.status === "Pending") && (
+                      visibleIncoming.every(
+                        (request) => request.status === "Pending",
+                      ) && (
                         <p className="text-xs text-muted-foreground">
                           All incoming requests are surfaced above.
                         </p>
@@ -357,7 +460,11 @@ const MeetingsPage = () => {
                 {visibleOutgoing.length > 0 ? (
                   <div className="space-y-3">
                     {visibleOutgoing.map((request) => (
-                      <RequestCard key={request.id} request={request} type="outgoing" />
+                      <RequestCard
+                        key={request.id}
+                        request={request}
+                        type="outgoing"
+                      />
                     ))}
                   </div>
                 ) : (

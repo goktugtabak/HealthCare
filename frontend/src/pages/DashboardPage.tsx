@@ -19,11 +19,12 @@ import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/AuthContext";
 import { usePlatformData } from "@/contexts/PlatformDataContext";
 import type { Post, User } from "@/data/types";
+import { useChatDock } from "@/contexts/ChatDockContext";
 import {
   Bell,
-  Calendar,
   Compass,
   FileText,
+  MessageCircle,
   Plus,
   Sparkles,
   UserCircle2,
@@ -53,29 +54,10 @@ const matchesUser = (post: Post, user: User) => {
   return false;
 };
 
-const RequestSnapshot = ({
-  title,
-  status,
-  slot,
-}: {
-  title: string;
-  status: string;
-  slot?: string | null;
-}) => (
-  <div className="rounded-2xl border border-border/60 bg-background/60 p-4">
-    <p className="text-sm font-medium text-foreground">{title}</p>
-    <p className="mt-1 text-xs uppercase tracking-[0.18em] text-muted-foreground">{status}</p>
-    {slot && (
-      <p className="mt-3 text-sm text-muted-foreground">
-        {new Date(slot).toLocaleString()}
-      </p>
-    )}
-  </div>
-);
-
 const DashboardPage = () => {
   const { currentUser } = useAuth();
-  const { meetingRequests, notifications, posts } = usePlatformData();
+  const { messages, notifications, posts, users } = usePlatformData();
+  const { openDock } = useChatDock();
   const navigate = useNavigate();
 
   if (!currentUser) {
@@ -91,16 +73,23 @@ const DashboardPage = () => {
     notifications.filter((notification) => notification.userId === currentUser.id),
   );
   const unreadNotifications = myNotifications.filter((notification) => !notification.read).length;
-  const myPostIds = myPosts.map((post) => post.id);
-  const activeRequests = sortNewest(
-    meetingRequests.filter(
-      (request) =>
-        request.requesterId === currentUser.id ||
-        myPostIds.includes(request.postId),
-    ),
+  const myMessages = messages.filter(
+    (message) =>
+      message.senderId === currentUser.id ||
+      message.recipientId === currentUser.id,
   );
-  const scheduledMeetings = activeRequests.filter((request) => request.status === "Scheduled");
-  const pendingRequests = activeRequests.filter((request) => request.status === "Pending");
+  const unreadMessages = myMessages.filter(
+    (message) => message.recipientId === currentUser.id && !message.readAt,
+  ).length;
+  const activeThreads = new Set(
+    myMessages.map((message) => {
+      const other =
+        message.senderId === currentUser.id
+          ? message.recipientId
+          : message.senderId;
+      return `${message.postId}::${other}`;
+    }),
+  ).size;
 
   const nextAction: NextBestAction = useMemo(() => {
     if (currentUser.profileCompleteness < 60) {
@@ -114,14 +103,14 @@ const DashboardPage = () => {
       };
     }
 
-    if (pendingRequests.length > 0) {
+    if (unreadMessages > 0) {
       return {
-        headline: `${pendingRequests.length} meeting request${pendingRequests.length === 1 ? "" : "s"} waiting`,
+        headline: `${unreadMessages} unread message${unreadMessages === 1 ? "" : "s"}`,
         description:
-          "Someone wants to start a first-contact conversation. Review and respond to keep momentum.",
-        ctaLabel: "Review",
-        to: "/meetings",
-        icon: Calendar,
+          "Someone started a conversation about one of your posts. Open the chat to reply.",
+        ctaLabel: "Open chat",
+        to: "/dashboard",
+        icon: MessageCircle,
         tone: "primary",
       };
     }
@@ -173,7 +162,7 @@ const DashboardPage = () => {
     };
   }, [
     currentUser,
-    pendingRequests.length,
+    unreadMessages,
     unreadNotifications,
     myPosts.length,
     relevantFeed.length,
@@ -182,7 +171,7 @@ const DashboardPage = () => {
   const onboardingSteps = buildOnboardingSteps(
     currentUser,
     myPosts.length > 0,
-    activeRequests.length > 0,
+    myMessages.length > 0,
   );
 
   const stats = [
@@ -213,20 +202,16 @@ const DashboardPage = () => {
           : undefined,
     },
     {
-      label: "Meetings",
-      value: scheduledMeetings.length,
+      label: "Conversations",
+      value: activeThreads,
       detail:
-        pendingRequests.length > 0
-          ? `${pendingRequests.length} pending`
-          : "Confirmed intros",
-      icon: Calendar,
-      tone: (pendingRequests.length > 0 ? "warning" : "success") as
+        unreadMessages > 0
+          ? `${unreadMessages} unread`
+          : "Active threads",
+      icon: MessageCircle,
+      tone: (unreadMessages > 0 ? "warning" : "success") as
         | "warning"
         | "success",
-      action:
-        activeRequests.length > 0
-          ? { label: "View all", to: "/meetings" }
-          : undefined,
     },
     {
       label: "Notifications",
@@ -243,17 +228,38 @@ const DashboardPage = () => {
     },
   ];
 
-  const requestCards = activeRequests.slice(0, 3).map((request) => {
-    const requestPost = posts.find((post) => post.id === request.postId);
-    return (
-      <RequestSnapshot
-        key={request.id}
-        title={requestPost?.title ?? "Active request"}
-        status={request.status}
-        slot={request.selectedSlot}
-      />
-    );
-  });
+  const recentConversations = (() => {
+    const byThread = new Map<
+      string,
+      { postId: string; otherUserId: string; last: (typeof myMessages)[number] }
+    >();
+    for (const message of myMessages) {
+      const other =
+        message.senderId === currentUser.id
+          ? message.recipientId
+          : message.senderId;
+      const key = `${message.postId}::${other}`;
+      const existing = byThread.get(key);
+      if (
+        !existing ||
+        new Date(message.createdAt).getTime() >
+          new Date(existing.last.createdAt).getTime()
+      ) {
+        byThread.set(key, {
+          postId: message.postId,
+          otherUserId: other,
+          last: message,
+        });
+      }
+    }
+    return Array.from(byThread.values())
+      .sort(
+        (a, b) =>
+          new Date(b.last.createdAt).getTime() -
+          new Date(a.last.createdAt).getTime(),
+      )
+      .slice(0, 3);
+  })();
 
   return (
     <AppShell>
@@ -304,15 +310,50 @@ const DashboardPage = () => {
             <div className="space-y-6">
               <DashboardSurface className="p-5 sm:p-6">
                 <DashboardSectionHeading
-                  title="Requests in motion"
-                  description="Pending or scheduled intros tied to your work."
+                  title="Recent conversations"
+                  description="Latest chats about your posts."
                   className="mb-4"
                 />
-                {requestCards.length > 0 ? (
-                  <div className="space-y-3">{requestCards}</div>
+                {recentConversations.length > 0 ? (
+                  <div className="space-y-2">
+                    {recentConversations.map((conversation) => {
+                      const threadPost = posts.find(
+                        (post) => post.id === conversation.postId,
+                      );
+                      const other = users.find(
+                        (user) => user.id === conversation.otherUserId,
+                      );
+                      return (
+                        <button
+                          key={`${conversation.postId}-${conversation.otherUserId}`}
+                          type="button"
+                          onClick={() =>
+                            openDock({
+                              postId: conversation.postId,
+                              otherUserId: conversation.otherUserId,
+                            })
+                          }
+                          className="flex w-full flex-col gap-1 rounded-2xl border border-border/60 bg-background/60 p-3 text-left transition-colors hover:border-primary/40 hover:bg-muted/40"
+                        >
+                          <span className="truncate text-sm font-medium">
+                            {other?.fullName ?? "Unknown user"}
+                          </span>
+                          <span className="truncate text-xs text-muted-foreground">
+                            Re: {threadPost?.title ?? "Post"}
+                          </span>
+                          <span className="truncate text-xs text-muted-foreground/80">
+                            {conversation.last.senderId === currentUser.id
+                              ? "You: "
+                              : ""}
+                            {conversation.last.content}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
                 ) : (
                   <p className="text-sm text-muted-foreground">
-                    No requests yet. Publish a post or explore a few opportunities first.
+                    No chats yet. Publish a post or explore opportunities to start one.
                   </p>
                 )}
               </DashboardSurface>
