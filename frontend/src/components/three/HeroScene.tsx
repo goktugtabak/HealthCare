@@ -62,39 +62,39 @@ const ConnectionCore = () => {
       </Float>
 
       {/* Engineer Orb with Trail */}
-      <Trail width={1.5} length={6} color={ENGINEER_COLOR} attenuation={(t) => t * t}>
+      <Trail width={1.5} length={4} color={ENGINEER_COLOR} attenuation={(t) => t * t}>
         <mesh ref={orb1}>
-          <sphereGeometry args={[0.25, 32, 32]} />
+          <sphereGeometry args={[0.25, 16, 16]} />
           <meshStandardMaterial color={ENGINEER_COLOR} emissive={ENGINEER_COLOR} emissiveIntensity={2.5} toneMapped={false} />
         </mesh>
       </Trail>
 
       {/* Healthcare Orb with Trail */}
-      <Trail width={1.5} length={6} color={HEALTHCARE_COLOR} attenuation={(t) => t * t}>
+      <Trail width={1.5} length={4} color={HEALTHCARE_COLOR} attenuation={(t) => t * t}>
         <mesh ref={orb2}>
-          <sphereGeometry args={[0.25, 32, 32]} />
+          <sphereGeometry args={[0.25, 16, 16]} />
           <meshStandardMaterial color={HEALTHCARE_COLOR} emissive={HEALTHCARE_COLOR} emissiveIntensity={2.5} toneMapped={false} />
         </mesh>
       </Trail>
       
       {/* Abstract Tech Rings */}
       <mesh rotation={[Math.PI / 2, 0, 0]}>
-        <ringGeometry args={[2.6, 2.62, 128]} />
+        <ringGeometry args={[2.6, 2.62, 64]} />
         <meshBasicMaterial color="#ffffff" transparent opacity={0.12} side={THREE.DoubleSide} />
       </mesh>
       <mesh rotation={[Math.PI / 3, Math.PI / 4, 0]}>
-        <ringGeometry args={[3.0, 3.02, 128]} />
+        <ringGeometry args={[3.0, 3.02, 64]} />
         <meshBasicMaterial color={ACCENT_COLOR} transparent opacity={0.18} side={THREE.DoubleSide} />
       </mesh>
       <mesh rotation={[-Math.PI / 5, Math.PI / 6, Math.PI / 4]}>
-        <ringGeometry args={[3.4, 3.41, 128]} />
+        <ringGeometry args={[3.4, 3.41, 64]} />
         <meshBasicMaterial color={ENGINEER_COLOR} transparent opacity={0.1} side={THREE.DoubleSide} />
       </mesh>
     </group>
   );
 };
 
-const AmbientParticles = ({ count = 200 }) => {
+const AmbientParticles = ({ count = 80 }) => {
   const mesh = useRef<THREE.InstancedMesh>(null);
   const dummy = useMemo(() => new THREE.Object3D(), []);
   
@@ -134,7 +134,7 @@ const AmbientParticles = ({ count = 200 }) => {
 
   return (
     <instancedMesh ref={mesh} args={[undefined, undefined, count]}>
-      <sphereGeometry args={[0.015, 8, 8]} />
+      <sphereGeometry args={[0.015, 6, 6]} />
       <meshBasicMaterial color={ACCENT_COLOR} transparent opacity={0.6} />
     </instancedMesh>
   );
@@ -143,8 +143,8 @@ const AmbientParticles = ({ count = 200 }) => {
 const HeroScene = () => (
   <Canvas
     camera={{ position: [0, 0, 8.5], fov: 45 }}
-    dpr={[1, 2]}
-    gl={{ alpha: true, antialias: true, powerPreference: "high-performance" }}
+    dpr={[1, 1.5]}
+    gl={{ alpha: true, antialias: false, powerPreference: "high-performance" }}
     style={{ background: "transparent" }}
   >
     <ambientLight intensity={0.4} />
@@ -153,9 +153,9 @@ const HeroScene = () => (
     
     <Suspense fallback={null}>
       <ConnectionCore />
-      <AmbientParticles count={150} />
+      <AmbientParticles count={75} />
       <Environment preset="city" />
-      <ContactShadows position={[0, -3.5, 0]} opacity={0.5} scale={25} blur={2.5} far={4} color="#000000" />
+      <ContactShadows position={[0, -3.5, 0]} opacity={0.4} scale={20} blur={2} far={4} color="#000000" resolution={512} />
     </Suspense>
   </Canvas>
 );
