@@ -1,3 +1,4 @@
+import { lazy, Suspense } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { Toaster as Sonner } from "@/components/ui/sonner";
@@ -7,27 +8,29 @@ import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { PlatformDataProvider } from "@/contexts/PlatformDataContext";
 import { ChatDockProvider } from "@/contexts/ChatDockContext";
 import LandingPage from "./pages/LandingPage";
-import LoginPage from "./pages/LoginPage";
-import RegisterPage from "./pages/RegisterPage";
-import DashboardPage from "./pages/DashboardPage";
-import ExplorePage from "./pages/ExplorePage";
-import MyPostsPage from "./pages/MyPostsPage";
-import PostDetailPage from "./pages/PostDetailPage";
-import CreateEditPostPage from "./pages/CreateEditPostPage";
-import MeetingsPage from "./pages/MeetingsPage";
-import ProfilePage from "./pages/ProfilePage";
-import NotificationsPage from "./pages/NotificationsPage";
-import AdminDashboardPage from "./pages/AdminDashboardPage";
-import AdminUsersPage from "./pages/AdminUsersPage";
-import AdminPostsPage from "./pages/AdminPostsPage";
-import AdminLogsPage from "./pages/AdminLogsPage";
-import AdminStatsPage from "./pages/AdminStatsPage";
-import OnboardingPage from "./pages/OnboardingPage";
-import VerifyEmailPage from "./pages/VerifyEmailPage";
-import PrivacyPolicyPage from "./pages/PrivacyPolicyPage";
-import TermsOfServicePage from "./pages/TermsOfServicePage";
-import NotFound from "./pages/NotFound";
 import { CookieConsent } from "@/components/CookieConsent";
+import { RouteLoadingFallback } from "@/components/RouteLoadingFallback";
+
+const LoginPage = lazy(() => import("./pages/LoginPage"));
+const RegisterPage = lazy(() => import("./pages/RegisterPage"));
+const DashboardPage = lazy(() => import("./pages/DashboardPage"));
+const ExplorePage = lazy(() => import("./pages/ExplorePage"));
+const MyPostsPage = lazy(() => import("./pages/MyPostsPage"));
+const PostDetailPage = lazy(() => import("./pages/PostDetailPage"));
+const CreateEditPostPage = lazy(() => import("./pages/CreateEditPostPage"));
+const MeetingsPage = lazy(() => import("./pages/MeetingsPage"));
+const ProfilePage = lazy(() => import("./pages/ProfilePage"));
+const NotificationsPage = lazy(() => import("./pages/NotificationsPage"));
+const AdminDashboardPage = lazy(() => import("./pages/AdminDashboardPage"));
+const AdminUsersPage = lazy(() => import("./pages/AdminUsersPage"));
+const AdminPostsPage = lazy(() => import("./pages/AdminPostsPage"));
+const AdminLogsPage = lazy(() => import("./pages/AdminLogsPage"));
+const AdminStatsPage = lazy(() => import("./pages/AdminStatsPage"));
+const OnboardingPage = lazy(() => import("./pages/OnboardingPage"));
+const VerifyEmailPage = lazy(() => import("./pages/VerifyEmailPage"));
+const PrivacyPolicyPage = lazy(() => import("./pages/PrivacyPolicyPage"));
+const TermsOfServicePage = lazy(() => import("./pages/TermsOfServicePage"));
+const NotFound = lazy(() => import("./pages/NotFound"));
 
 const queryClient = new QueryClient();
 
@@ -215,7 +218,9 @@ const App = () => (
         <AuthProvider>
           <ChatDockProvider>
             <BrowserRouter>
-              <AppRoutes />
+              <Suspense fallback={<RouteLoadingFallback />}>
+                <AppRoutes />
+              </Suspense>
               <CookieConsent />
             </BrowserRouter>
           </ChatDockProvider>
