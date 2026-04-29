@@ -6,6 +6,10 @@ const emailService = require('./email');
 const { recordAuditLog } = require('./audit');
 
 const SALT_ROUNDS = 10;
+// H-03: bcrypt the candidate password against this fixed dummy hash on the
+// "unknown email" branch so login response time matches the real-but-wrong
+// password branch, denying timing-based email enumeration.
+const DUMMY_HASH = '$2b$10$invalidinvalidinvalidinvalidinvalidinvalidinvalidinvalidinv';
 
 // FR-01: Accept .edu, .edu.tr, .edu.au, .edu.<cc> two- or three-letter
 // country codes. Personal providers stay rejected.
@@ -93,6 +97,9 @@ const login = async ({ email, password, ip, userAgent }) => {
   });
 
   if (!user || user.deletedAt) {
+    // H-03: equalise response time so attackers can't distinguish "no user"
+    // from "user exists, wrong password" by comparing latencies.
+    await comparePassword(password, DUMMY_HASH);
     await recordAuditLog({
       action: 'login',
       actionType: 'Login',
