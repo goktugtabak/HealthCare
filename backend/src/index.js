@@ -34,7 +34,14 @@ if (process.env.NODE_ENV === 'production') {
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-app.set('trust proxy', 1);
+// C-01: only trust X-Forwarded-For when an actual reverse proxy (Caddy) sits
+// in front. In dev/test there is no proxy, so trusting XFF would let any
+// caller spoof req.ip and bypass the rate limiters. Caddy in production
+// rewrites XFF to the real client IP — that's the only place req.ip should
+// follow the header.
+if (process.env.NODE_ENV === 'production' || process.env.TRUST_PROXY === 'true') {
+  app.set('trust proxy', 1);
+}
 
 app.use(helmet({
   contentSecurityPolicy: process.env.NODE_ENV === 'production' ? undefined : false,
@@ -53,11 +60,16 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));
 
+// C-01: keyGenerator uses req.ip (which respects `trust proxy`) so attackers
+// cannot bypass limits by spoofing X-Forwarded-For. Without an explicit key
+// generator, express-rate-limit falls back to req.ip but a hand-rolled key
+// makes the intent explicit and resistant to future changes.
 const limiter = rateLimit({
   windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 60000,
   max: parseInt(process.env.RATE_LIMIT_MAX) || 100,
   standardHeaders: true,
   legacyHeaders: false,
+  keyGenerator: (req) => req.ip,
   message: { error: 'Too many requests, please try again later.' },
 });
 app.use('/api', limiter);
@@ -69,6 +81,7 @@ const authLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   skipSuccessfulRequests: true,
+  keyGenerator: (req) => req.ip,
   message: { error: 'Too many login/registration attempts. Try again in 15 minutes.' },
 });
 app.use(['/api/auth/login', '/api/auth/register'], authLimiter);
