@@ -2,6 +2,7 @@ const express = require('express');
 const { body, param, validationResult } = require('express-validator');
 const prisma = require('../lib/prisma');
 const { authenticate, requireVerified } = require('../middleware/auth');
+const writeLimit = require('../middleware/writeLimit');
 const { recordAuditLog } = require('../services/audit');
 
 const router = express.Router();
@@ -96,6 +97,7 @@ const ndaSatisfied = async ({ userId, postId, meetingRequestId }) => {
 router.post(
   '/',
   authenticate,
+  writeLimit,
   requireVerified,
   [
     body('postId').isString().trim().notEmpty().withMessage('Valid post ID required'),

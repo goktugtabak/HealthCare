@@ -3,6 +3,7 @@ const { body, query, param, validationResult } = require('express-validator');
 const postService = require('../services/posts');
 const { authenticate, requireVerified, requireRole } = require('../middleware/auth');
 const auditLog = require('../middleware/auditLog');
+const writeLimit = require('../middleware/writeLimit');
 
 const router = express.Router();
 
@@ -91,6 +92,7 @@ router.get('/:id', authenticate, [param('id').isString().trim().notEmpty()], val
 router.post(
   '/',
   authenticate,
+  writeLimit,
   requireVerified,
   requireRole('engineer', 'healthcare', 'admin'),
   [

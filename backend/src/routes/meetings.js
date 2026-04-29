@@ -2,6 +2,7 @@ const express = require('express');
 const { body, param, validationResult } = require('express-validator');
 const prisma = require('../lib/prisma');
 const { authenticate, requireVerified } = require('../middleware/auth');
+const writeLimit = require('../middleware/writeLimit');
 const { recordAuditLog } = require('../services/audit');
 const emailService = require('../services/email');
 
@@ -56,6 +57,7 @@ router.get('/:id', authenticate, [param('id').isString().trim().notEmpty()], val
 router.post(
   '/',
   authenticate,
+  writeLimit,
   requireVerified,
   [
     body('postId').isString().trim().notEmpty(),
@@ -141,6 +143,7 @@ router.post(
 router.post(
   '/:id/accept',
   authenticate,
+  writeLimit,
   requireVerified,
   [param('id').isString().trim().notEmpty(), body('selectedSlot').optional().isString()],
   validate,
@@ -221,6 +224,7 @@ router.post(
 router.post(
   '/:id/decline',
   authenticate,
+  writeLimit,
   requireVerified,
   [param('id').isString().trim().notEmpty(), body('reason').optional().isString().trim().isLength({ max: 500 })],
   validate,
@@ -283,6 +287,7 @@ router.post(
 router.post(
   '/:id/cancel',
   authenticate,
+  writeLimit,
   requireVerified,
   [param('id').isString().trim().notEmpty()],
   validate,
