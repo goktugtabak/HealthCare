@@ -171,11 +171,40 @@ router.delete('/posts/:id', [param('id').isString().trim().notEmpty()], validate
   }
 });
 
+// C-02 / C-03: any state change that takes a user out of "active admin"
+// circulation must refuse to (a) hit the calling admin's own account or
+// (b) leave the platform with zero active admins. SELF_DESTRUCTIVE_STATUSES
+// captures the destinations that disable login for the target.
+const SELF_DESTRUCTIVE_STATUSES = new Set(['suspended', 'deactivated']);
+
+const guardAdminInvariant = async (req, res, target, status) => {
+  if (req.user.id === target.id && SELF_DESTRUCTIVE_STATUSES.has(status)) {
+    res.status(403).json({
+      error: 'Cannot perform this action on your own admin account',
+    });
+    return false;
+  }
+  if (target.role === 'admin' && SELF_DESTRUCTIVE_STATUSES.has(status)) {
+    const activeAdminCount = await prisma.user.count({
+      where: { role: 'admin', status: 'active', deletedAt: null },
+    });
+    if (activeAdminCount <= 1) {
+      res.status(403).json({
+        error: 'Cannot leave the platform without an active admin',
+      });
+      return false;
+    }
+  }
+  return true;
+};
+
 const setUserStatus = (action, actionType, status) =>
   async (req, res, next) => {
     try {
       const user = await prisma.user.findUnique({ where: { id: req.params.id } });
       if (!user) return res.status(404).json({ error: 'User not found' });
+      const ok = await guardAdminInvariant(req, res, user, status);
+      if (!ok) return;
       const updated = await prisma.user.update({
         where: { id: req.params.id },
         data: { status },
@@ -247,6 +276,24 @@ router.post('/users/:id/hard-delete', [param('id').isString().trim().notEmpty()]
   try {
     const user = await prisma.user.findUnique({ where: { id: req.params.id } });
     if (!user) return res.status(404).json({ error: 'User not found' });
+
+    // C-02: an admin cannot brick the platform by purging their own account...
+    if (req.user.id === user.id) {
+      return res.status(403).json({
+        error: 'Cannot perform this action on your own admin account',
+      });
+    }
+    // ...and the last remaining active admin can't be hard-deleted by anyone.
+    if (user.role === 'admin') {
+      const activeAdminCount = await prisma.user.count({
+        where: { role: 'admin', status: 'active', deletedAt: null },
+      });
+      if (activeAdminCount <= 1) {
+        return res.status(403).json({
+          error: 'Cannot leave the platform without an active admin',
+        });
+      }
+    }
 
     await prisma.$transaction([
       prisma.message.updateMany({ where: { OR: [{ senderId: user.id }, { recipientId: user.id }] }, data: { deletedAt: new Date() } }),

@@ -85,6 +85,79 @@ describe('Admin endpoints', () => {
     expect(reactivate.body.user.status).toBe('active');
   });
 
+  describe('C-02 / C-03 — admin self-destruct + last-admin guards', () => {
+    const bcrypt = require('bcrypt');
+    let secondAdmin;
+
+    beforeAll(async () => {
+      secondAdmin = await prisma.user.create({
+        data: {
+          email: `jest-c02-admin-${Date.now()}@mit.edu`,
+          passwordHash: await bcrypt.hash('Demo123!', 10),
+          firstName: 'Second',
+          lastName: 'Admin',
+          fullName: 'Second Admin',
+          role: 'admin',
+          status: 'active',
+          emailVerified: true,
+          domainVerified: true,
+          onboardingCompleted: true,
+        },
+      });
+    });
+
+    afterAll(async () => {
+      await prisma.user.update({ where: { id: 'u6' }, data: { status: 'active' } }).catch(() => {});
+      await prisma.user.deleteMany({ where: { id: secondAdmin.id } }).catch(() => {});
+    });
+
+    test('admin cannot self-hard-delete', async () => {
+      const me = await request(app).get('/api/auth/me').set('Authorization', `Bearer ${adminToken}`);
+      const res = await request(app)
+        .post(`/api/admin/users/${me.body.user.id}/hard-delete`)
+        .set('Authorization', `Bearer ${adminToken}`);
+      expect(res.status).toBe(403);
+      expect(res.body.error).toMatch(/own admin account/i);
+    });
+
+    test('admin cannot self-suspend', async () => {
+      const me = await request(app).get('/api/auth/me').set('Authorization', `Bearer ${adminToken}`);
+      const res = await request(app)
+        .post(`/api/admin/users/${me.body.user.id}/suspend`)
+        .set('Authorization', `Bearer ${adminToken}`);
+      expect(res.status).toBe(403);
+      expect(res.body.error).toMatch(/own admin account/i);
+    });
+
+    test('non-self admin operations still work (suspend + reactivate other admin)', async () => {
+      const suspend = await request(app)
+        .post(`/api/admin/users/${secondAdmin.id}/suspend`)
+        .set('Authorization', `Bearer ${adminToken}`);
+      expect(suspend.status).toBe(200);
+      expect(suspend.body.user.status).toBe('suspended');
+
+      const reactivate = await request(app)
+        .post(`/api/admin/users/${secondAdmin.id}/reactivate`)
+        .set('Authorization', `Bearer ${adminToken}`);
+      expect(reactivate.status).toBe(200);
+      expect(reactivate.body.user.status).toBe('active');
+    });
+
+    test('last-admin invariant blocks hard-delete when only one active admin remains', async () => {
+      // Force secondAdmin into a non-active state via the DB so the only active
+      // admin in the system is u6 (the seed admin / caller). Then u6 attempts
+      // to hard-delete secondAdmin: target is role='admin', activeAdminCount=1,
+      // so the invariant must refuse.
+      await prisma.user.update({ where: { id: secondAdmin.id }, data: { status: 'suspended' } });
+      const res = await request(app)
+        .post(`/api/admin/users/${secondAdmin.id}/hard-delete`)
+        .set('Authorization', `Bearer ${adminToken}`);
+      expect(res.status).toBe(403);
+      expect(res.body.error).toMatch(/active admin/i);
+      await prisma.user.update({ where: { id: secondAdmin.id }, data: { status: 'active' } });
+    });
+  });
+
   test('72h pending-deletion sweep purges due accounts', async () => {
     // Stage a user with deletionRequestedAt 4 days ago
     const test = await prisma.user.create({
