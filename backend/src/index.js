@@ -74,7 +74,8 @@ app.use(morgan('combined', { stream: { write: (msg) => logger.http(msg.trim()) }
 
 const corsOrigins = (process.env.FRONTEND_URL || 'http://localhost:8080,http://localhost:3000')
   .split(',')
-  .map((s) => s.trim());
+  .map((s) => s.trim())
+  .filter((s) => s.length > 0);
 
 app.use(cors({
   origin: corsOrigins,
