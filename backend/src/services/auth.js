@@ -4,6 +4,7 @@ const { v4: uuidv4 } = require('uuid');
 const prisma = require('../lib/prisma');
 const emailService = require('./email');
 const { recordAuditLog } = require('./audit');
+const { sanitiseUserText } = require('../middleware/sanitizers');
 
 const SALT_ROUNDS = 10;
 // H-03: bcrypt the candidate password against this fixed dummy hash on the
@@ -64,15 +65,17 @@ const register = async ({
   const passwordHash = await hashPassword(password);
   const verifyToken = uuidv4();
 
+  const cleanFirst = sanitiseUserText(firstName);
+  const cleanLast = sanitiseUserText(lastName);
   const user = await prisma.user.create({
     data: {
       email,
       passwordHash,
-      firstName,
-      lastName,
-      fullName: `${firstName} ${lastName}`.trim(),
+      firstName: cleanFirst,
+      lastName: cleanLast,
+      fullName: sanitiseUserText(`${cleanFirst} ${cleanLast}`.trim()),
       role: role || 'engineer',
-      institution: institution || null,
+      institution: sanitiseUserText(institution || null),
       city: city || null,
       country: country || null,
       verifyToken,

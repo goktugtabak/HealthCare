@@ -4,7 +4,7 @@ const prisma = require('../lib/prisma');
 const { authenticate, requireVerified } = require('../middleware/auth');
 const writeLimit = require('../middleware/writeLimit');
 const { recordAuditLog } = require('../services/audit');
-const { safeId } = require('../middleware/sanitizers');
+const { safeId, sanitiseUserText } = require('../middleware/sanitizers');
 
 // M-04 (GDPR Art. 17): blank PII for users in pending_deletion when they
 // surface as sender or recipient on a message payload. Mutates in place.
@@ -146,7 +146,13 @@ router.post(
       }
 
       const message = await prisma.message.create({
-        data: { postId, senderId: req.user.id, recipientId, content, meetingRequestId: meetingRequestId || null },
+        data: {
+          postId,
+          senderId: req.user.id,
+          recipientId,
+          content: sanitiseUserText(content),
+          meetingRequestId: meetingRequestId || null,
+        },
         include: {
           sender: { select: { id: true, firstName: true, lastName: true, fullName: true, status: true } },
           recipient: { select: { id: true, firstName: true, lastName: true, fullName: true, email: true, status: true } },

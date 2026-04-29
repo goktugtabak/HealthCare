@@ -1,5 +1,6 @@
 const prisma = require('../lib/prisma');
 const { recordAuditLog } = require('./audit');
+const { sanitiseUserText } = require('../middleware/sanitizers');
 
 const POST_INCLUDE = {
   author: {
@@ -162,10 +163,10 @@ const getPost = async (id, userId, role) => {
 const buildCreateData = (authorId, ownerRole, body) => ({
   authorId,
   ownerRole,
-  title: body.title,
+  title: sanitiseUserText(body.title),
   workingDomain: body.workingDomain || body.domain,
-  shortExplanation: body.shortExplanation || body.description || '',
-  description: body.description || body.shortExplanation || null,
+  shortExplanation: sanitiseUserText(body.shortExplanation || body.description || ''),
+  description: sanitiseUserText(body.description || body.shortExplanation || null),
   domain: body.domain || body.workingDomain || null,
   requiredExpertise: Array.isArray(body.requiredExpertise) ? body.requiredExpertise : [],
   matchTags: Array.isArray(body.matchTags) ? body.matchTags : Array.isArray(body.tags) ? body.tags : [],
@@ -174,8 +175,8 @@ const buildCreateData = (authorId, ownerRole, body) => ({
   confidentiality: body.confidentiality || body.confidentialityLevel || 'public',
   collaborationType: body.collaborationType || null,
   commitmentLevel: body.commitmentLevel || null,
-  highLevelIdea: body.highLevelIdea || null,
-  notesPreview: body.notesPreview || null,
+  highLevelIdea: sanitiseUserText(body.highLevelIdea || null),
+  notesPreview: sanitiseUserText(body.notesPreview || null),
   country: body.country || null,
   city: body.city || null,
   expiryDate: body.expiryDate ? new Date(body.expiryDate) : null,
@@ -228,8 +229,12 @@ const updatePost = async (id, userId, role, body) => {
     'city',
     'autoClose',
   ];
+  const TEXT_FIELDS = new Set(['title', 'shortExplanation', 'highLevelIdea', 'notesPreview']);
   const data = {};
-  for (const k of editable) if (body[k] !== undefined) data[k] = body[k];
+  for (const k of editable) {
+    if (body[k] === undefined) continue;
+    data[k] = TEXT_FIELDS.has(k) ? sanitiseUserText(body[k]) : body[k];
+  }
   if (body.expiryDate !== undefined) data.expiryDate = body.expiryDate ? new Date(body.expiryDate) : null;
   if (body.confidentiality !== undefined) data.confidentiality = body.confidentiality;
   if (body.confidentialityLevel !== undefined) data.confidentiality = body.confidentialityLevel;

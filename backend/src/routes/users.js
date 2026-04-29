@@ -4,6 +4,15 @@ const prisma = require('../lib/prisma');
 const { authenticate } = require('../middleware/auth');
 const { recordAuditLog } = require('../services/audit');
 const emailService = require('../services/email');
+const { sanitiseUserText } = require('../middleware/sanitizers');
+
+const USER_TEXT_FIELDS = new Set([
+  'firstName',
+  'lastName',
+  'institution',
+  'bio',
+  'portfolioSummary',
+]);
 
 const router = express.Router();
 
@@ -110,10 +119,15 @@ router.patch(
         'onboardingCompleted',
       ];
       const data = {};
-      for (const f of fields) if (req.body[f] !== undefined) data[f] = req.body[f];
+      for (const f of fields) {
+        if (req.body[f] === undefined) continue;
+        data[f] = USER_TEXT_FIELDS.has(f) ? sanitiseUserText(req.body[f]) : req.body[f];
+      }
       if (data.firstName || data.lastName) {
         const merged = await prisma.user.findUnique({ where: { id: req.user.id }, select: { firstName: true, lastName: true } });
-        data.fullName = `${data.firstName || merged.firstName} ${data.lastName || merged.lastName}`.trim();
+        data.fullName = sanitiseUserText(
+          `${data.firstName || merged.firstName} ${data.lastName || merged.lastName}`.trim()
+        );
       }
 
       const updated = await prisma.user.update({

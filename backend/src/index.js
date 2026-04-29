@@ -49,8 +49,25 @@ if (process.env.NODE_ENV === 'production' || process.env.TRUST_PROXY === 'true')
   app.set('trust proxy', 1);
 }
 
+// M-03: explicit CSP in production. Helmet's default is permissive in
+// some directives (e.g. it allows inline scripts when CSP is not set).
+// We deny script inline, restrict frame-ancestors, and lock everything
+// down to same-origin unless a directive specifically loosens it.
 app.use(helmet({
-  contentSecurityPolicy: process.env.NODE_ENV === 'production' ? undefined : false,
+  contentSecurityPolicy: process.env.NODE_ENV === 'production'
+    ? {
+        directives: {
+          defaultSrc: ["'self'"],
+          scriptSrc: ["'self'"],
+          styleSrc: ["'self'", "'unsafe-inline'"],
+          imgSrc: ["'self'", 'data:', 'https:'],
+          connectSrc: ["'self'"],
+          fontSrc: ["'self'", 'data:'],
+          objectSrc: ["'none'"],
+          frameAncestors: ["'none'"],
+        },
+      }
+    : false,
 }));
 app.use(compression());
 app.use(morgan('combined', { stream: { write: (msg) => logger.http(msg.trim()) } }));

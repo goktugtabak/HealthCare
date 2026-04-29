@@ -207,3 +207,81 @@ describe('M-06 — portfolioLinks + externalUrl protocol whitelist', () => {
     expect(res.status).toBe(400);
   });
 });
+
+describe('M-03 — XSS defence-in-depth (storage-time HTML stripping)', () => {
+  let healthcareToken;
+  let mehmetToken;
+  const createdPostIds = [];
+
+  beforeAll(async () => {
+    healthcareToken = await login('ayse.kaya@hacettepe.edu.tr');
+    mehmetToken = await login('mehmet.demir@metu.edu.tr');
+  });
+
+  afterAll(async () => {
+    for (const id of createdPostIds) {
+      await prisma.post.delete({ where: { id } }).catch(() => {});
+    }
+    await prisma.$disconnect();
+  });
+
+  test('POST /api/posts strips <script> from title', async () => {
+    const res = await request(app)
+      .post('/api/posts')
+      .set('Authorization', `Bearer ${healthcareToken}`)
+      .send({
+        title: '<script>alert(1)</script>Cardio innovation jest M-03',
+        workingDomain: 'Cardiology',
+        shortExplanation: 'jest M-03 description',
+        projectStage: 'ideation',
+        confidentiality: 'public',
+        country: 'Turkey',
+        city: 'Ankara',
+        publish: true,
+      });
+    expect(res.status).toBe(201);
+    createdPostIds.push(res.body.id);
+    expect(res.body.title).toBe('Cardio innovation jest M-03');
+    expect(res.body.title).not.toContain('<script>');
+  });
+
+  test('POST /api/messages strips <img onerror> from content', async () => {
+    // Reuse seed mr1 (mehmet → ayse on p1, NDA accepted in test setup) by
+    // forcing it to accepted so messaging is allowed.
+    const mr = await prisma.meetingRequest.findUnique({ where: { id: 'mr1' } });
+    const original = mr.status;
+    await prisma.meetingRequest.update({
+      where: { id: 'mr1' },
+      data: { status: 'accepted', ndaAcceptedAt: mr.ndaAcceptedAt || new Date() },
+    });
+    try {
+      const res = await request(app)
+        .post('/api/messages')
+        .set('Authorization', `Bearer ${mehmetToken}`)
+        .send({
+          postId: 'p1',
+          recipientId: 'u1',
+          content: '<img src=x onerror=alert(1)>hello jest M-03',
+          meetingRequestId: 'mr1',
+        });
+      expect(res.status).toBe(201);
+      const stored = await prisma.message.findUnique({ where: { id: res.body.id } });
+      expect(stored.content).toBe('hello jest M-03');
+      expect(stored.content).not.toContain('<img');
+      await prisma.message.delete({ where: { id: res.body.id } });
+    } finally {
+      await prisma.meetingRequest.update({ where: { id: 'mr1' }, data: { status: original } });
+    }
+  });
+
+  test('PATCH /me strips <svg/onload> from bio', async () => {
+    const res = await request(app)
+      .patch('/api/users/me')
+      .set('Authorization', `Bearer ${mehmetToken}`)
+      .send({ bio: 'Doctor<svg/onload=alert(1)>specialised jest M-03' });
+    expect(res.status).toBe(200);
+    expect(res.body.bio).toBe('Doctorspecialised jest M-03');
+    expect(res.body.bio).not.toContain('<svg');
+    await prisma.user.update({ where: { id: 'u2' }, data: { bio: null } });
+  });
+});

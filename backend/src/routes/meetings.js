@@ -5,7 +5,7 @@ const { authenticate, requireVerified } = require('../middleware/auth');
 const writeLimit = require('../middleware/writeLimit');
 const { recordAuditLog } = require('../services/audit');
 const emailService = require('../services/email');
-const { safeId } = require('../middleware/sanitizers');
+const { safeId, sanitiseUserText } = require('../middleware/sanitizers');
 
 const router = express.Router();
 
@@ -115,7 +115,7 @@ router.post(
           requestorId: req.user.id,
           recipientId: post.authorId,
           requesterRole: req.user.role,
-          introductoryMessage,
+          introductoryMessage: sanitiseUserText(introductoryMessage),
           ndaAccepted: true,
           ndaAcceptedAt: new Date(),
           proposedSlots: Array.isArray(proposedSlots) ? proposedSlots : [],
@@ -272,7 +272,7 @@ router.post(
 
       const updated = await prisma.meetingRequest.update({
         where: { id: m.id },
-        data: { status: 'declined', notes: req.body.reason || null },
+        data: { status: 'declined', notes: sanitiseUserText(req.body.reason || null) },
         include: MEETING_INCLUDE,
       });
 

@@ -1,4 +1,18 @@
 const { param, query, body } = require('express-validator');
+const sanitizeHtml = require('sanitize-html');
+
+// M-03: defence-in-depth — strip ALL HTML/script content at storage time so
+// that any future render path that does not escape (e.g. accidental
+// dangerouslySetInnerHTML) still cannot reach an XSS payload.
+const sanitiseUserText = (text) => {
+  if (text == null) return text;
+  return sanitizeHtml(text, {
+    allowedTags: [],
+    allowedAttributes: {},
+    disallowedTagsMode: 'discard',
+    enforceHtmlBoundary: true,
+  });
+};
 
 // Accepts UUIDs OR seed-stable IDs (p1, u2, mr3). Rejects null bytes, slashes, dots-pair.
 const safeId = (name = 'id') =>
@@ -28,4 +42,4 @@ const safeFreeText = (name, max) =>
     .isLength({ max })
     .matches(/^[^\x00]*$/);
 
-module.exports = { safeId, safeQueryString, safeFreeText };
+module.exports = { safeId, safeQueryString, safeFreeText, sanitiseUserText };
