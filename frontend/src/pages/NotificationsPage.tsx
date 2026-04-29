@@ -78,17 +78,19 @@ const NotificationsPage = () => {
   const { markAllNotificationsRead, markNotificationRead, notifications } = usePlatformData();
   const [filter, setFilter] = useState<Filter>("all");
 
-  if (!currentUser) return null;
-
   const myNotifications = useMemo(
     () =>
-      [...notifications]
-        .filter((notification) => notification.userId === currentUser.id)
-        .sort(
-          (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-        ),
-    [notifications, currentUser.id],
+      currentUser
+        ? [...notifications]
+            .filter((notification) => notification.userId === currentUser.id)
+            .sort(
+              (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+            )
+        : [],
+    [notifications, currentUser],
   );
+
+  if (!currentUser) return null;
 
   const unreadCount = myNotifications.filter((notification) => !notification.read).length;
   const visible = myNotifications.filter((notification) => matchesFilter(notification, filter));

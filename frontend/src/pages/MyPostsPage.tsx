@@ -31,20 +31,22 @@ const MyPostsPage = () => {
   const navigate = useNavigate();
   const [filter, setFilter] = useState<StatusFilter>("all");
 
+  const myPosts = useMemo(
+    () =>
+      currentUser
+        ? [...posts]
+            .filter((post) => post.ownerId === currentUser.id)
+            .sort(
+              (a, b) =>
+                new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
+            )
+        : [],
+    [posts, currentUser],
+  );
+
   if (!currentUser) {
     return null;
   }
-
-  const myPosts = useMemo(
-    () =>
-      [...posts]
-        .filter((post) => post.ownerId === currentUser.id)
-        .sort(
-          (a, b) =>
-            new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
-        ),
-    [posts, currentUser.id],
-  );
 
   const visiblePosts =
     filter === "all" ? myPosts : myPosts.filter((post) => post.status === filter);

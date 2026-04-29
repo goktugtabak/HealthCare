@@ -33,16 +33,18 @@ const ExplorePage = () => {
     [posts],
   );
 
-  if (!currentUser) {
-    return null;
-  }
-
-  const interestSource =
-    currentUser.role === "healthcare"
-      ? currentUser.interestTags
-      : currentUser.expertiseTags;
+  const interestSource = useMemo(
+    () =>
+      currentUser
+        ? currentUser.role === "healthcare"
+          ? currentUser.interestTags
+          : currentUser.expertiseTags
+        : [],
+    [currentUser],
+  );
 
   const results = useMemo(() => {
+    if (!currentUser) return [];
     const base = posts.filter(
       (post) => post.status === "Active" && post.ownerId !== currentUser.id,
     );
@@ -108,8 +110,7 @@ const ExplorePage = () => {
     activeTag,
     city,
     country,
-    currentUser.city,
-    currentUser.id,
+    currentUser,
     domain,
     interestSource,
     posts,
@@ -118,6 +119,10 @@ const ExplorePage = () => {
     search,
     sort,
   ]);
+
+  if (!currentUser) {
+    return null;
+  }
 
   const relevantCount = results.filter((entry) => entry.matchCount > 0).length;
   const filtersActive =
