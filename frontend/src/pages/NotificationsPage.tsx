@@ -1,11 +1,16 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AppShell } from "@/components/AppShell";
 import { PageHero } from "@/components/PageHero";
 import { EmptyState } from "@/components/SharedComponents";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/AuthContext";
 import { usePlatformData } from "@/contexts/PlatformDataContext";
+import { isMockMode } from "@/api";
 import { cn } from "@/lib/utils";
+
+// N8: visibility-aware polling cadence. Tab in background → no fetches.
+const POLL_INTERVAL_MS =
+  Number(import.meta.env.VITE_POLL_NOTIFICATIONS_MS) || 5000;
 import {
   Bell,
   CalendarCheck,
@@ -75,8 +80,18 @@ const matchesFilter = (notification: Notification, filter: Filter) => {
 
 const NotificationsPage = () => {
   const { currentUser } = useAuth();
-  const { markAllNotificationsRead, markNotificationRead, notifications } = usePlatformData();
+  const { markAllNotificationsRead, markNotificationRead, notifications, refreshAll } =
+    usePlatformData();
   const [filter, setFilter] = useState<Filter>("all");
+
+  useEffect(() => {
+    if (isMockMode()) return;
+    const tick = () => {
+      if (document.visibilityState === "visible") refreshAll();
+    };
+    const id = window.setInterval(tick, POLL_INTERVAL_MS);
+    return () => window.clearInterval(id);
+  }, [refreshAll]);
 
   const myNotifications = useMemo(
     () =>

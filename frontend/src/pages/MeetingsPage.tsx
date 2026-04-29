@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Calendar,
   CalendarClock,
@@ -29,9 +29,14 @@ import {
 import { useAuth } from "@/contexts/AuthContext";
 import { useChatDock } from "@/contexts/ChatDockContext";
 import { usePlatformData } from "@/contexts/PlatformDataContext";
+import { isMockMode } from "@/api";
 import type { MeetingRequest } from "@/data/types";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+
+// N8: visibility-aware polling cadence. Tab in background → no fetches.
+const POLL_INTERVAL_MS =
+  Number(import.meta.env.VITE_POLL_MEETINGS_MS) || 10000;
 
 type Direction = "incoming" | "outgoing";
 type StatusFilter =
@@ -82,10 +87,20 @@ const MeetingsPage = () => {
     meetingRequests,
     posts,
     users,
+    refreshAll,
   } = usePlatformData();
   const [filter, setFilter] = useState<StatusFilter>("all");
   const [pendingAccept, setPendingAccept] = useState<MeetingRequest | null>(null);
   const [chosenSlot, setChosenSlot] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (isMockMode()) return;
+    const tick = () => {
+      if (document.visibilityState === "visible") refreshAll();
+    };
+    const id = window.setInterval(tick, POLL_INTERVAL_MS);
+    return () => window.clearInterval(id);
+  }, [refreshAll]);
 
   const currentUserId = currentUser?.id;
 
