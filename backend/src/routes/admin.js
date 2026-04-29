@@ -1,39 +1,36 @@
 const express = require('express');
-const { query, validationResult } = require('express-validator');
-const { PrismaClient } = require('@prisma/client');
+const { body, param, query, validationResult } = require('express-validator');
+const prisma = require('../lib/prisma');
 const { authenticate, requireRole } = require('../middleware/auth');
-const logger = require('../middleware/logger');
+const { recordAuditLog, verifyAuditChain } = require('../services/audit');
 
 const router = express.Router();
-const prisma = new PrismaClient();
 
 router.use(authenticate, requireRole('admin'));
 
-const log = (userId, action, resource, resourceId, req) =>
-  prisma.auditLog.create({
-    data: {
-      userId,
-      action,
-      resource,
-      resourceId,
-      ip: req.ip,
-      userAgent: req.get('user-agent'),
-    },
-  });
+const validate = (req, res, next) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
+  next();
+};
+
+const adminFullName = (u) =>
+  u?.fullName || [u?.firstName, u?.lastName].filter(Boolean).join(' ') || u?.email || 'Admin';
 
 router.get('/users', async (req, res, next) => {
   try {
-    const { page = 1, limit = 50, role, search } = req.query;
+    const { page = 1, limit = 50, role, status, search } = req.query;
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
     const where = {
-      deletedAt: null,
       ...(role && { role }),
+      ...(status && { status }),
       ...(search && {
         OR: [
           { email: { contains: search, mode: 'insensitive' } },
           { firstName: { contains: search, mode: 'insensitive' } },
           { lastName: { contains: search, mode: 'insensitive' } },
+          { institution: { contains: search, mode: 'insensitive' } },
         ],
       }),
     };
@@ -44,9 +41,23 @@ router.get('/users', async (req, res, next) => {
         skip,
         take: parseInt(limit),
         select: {
-          id: true, email: true, firstName: true, lastName: true,
-          role: true, institution: true, verifiedAt: true, createdAt: true,
-          _count: { select: { posts: true, sentMessages: true } },
+          id: true,
+          email: true,
+          firstName: true,
+          lastName: true,
+          fullName: true,
+          role: true,
+          institution: true,
+          city: true,
+          country: true,
+          status: true,
+          emailVerified: true,
+          domainVerified: true,
+          profileCompleteness: true,
+          deletionRequestedAt: true,
+          lastActiveAt: true,
+          createdAt: true,
+          _count: { select: { posts: true, sentMessages: true, meetingRequests: true } },
         },
         orderBy: { createdAt: 'desc' },
       }),
@@ -59,62 +70,227 @@ router.get('/users', async (req, res, next) => {
   }
 });
 
+router.get('/users/:id/metrics', [param('id').isString().trim().notEmpty()], validate, async (req, res, next) => {
+  try {
+    const id = req.params.id;
+    const [user, posts, sent, received, accepted, declined, messages, logs] = await Promise.all([
+      prisma.user.findUnique({
+        where: { id },
+        select: { id: true, email: true, fullName: true, role: true, lastActiveAt: true, profileCompleteness: true, status: true },
+      }),
+      prisma.post.count({ where: { authorId: id, deletedAt: null } }),
+      prisma.meetingRequest.count({ where: { requestorId: id } }),
+      prisma.meetingRequest.count({ where: { recipientId: id } }),
+      prisma.meetingRequest.count({ where: { recipientId: id, status: { in: ['accepted', 'scheduled'] } } }),
+      prisma.meetingRequest.count({ where: { recipientId: id, status: 'declined' } }),
+      prisma.message.count({ where: { senderId: id, deletedAt: null } }),
+      prisma.auditLog.count({ where: { userId: id } }),
+    ]);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    res.json({
+      user,
+      metrics: {
+        postsCreated: posts,
+        meetingsRequested: sent,
+        meetingsReceived: received,
+        meetingsAccepted: accepted,
+        meetingsDeclined: declined,
+        messagesSent: messages,
+        auditLogCount: logs,
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.get('/posts', async (req, res, next) => {
   try {
-    const { page = 1, limit = 50, status } = req.query;
+    const { page = 1, limit = 50, status, city, domain } = req.query;
     const skip = (parseInt(page) - 1) * parseInt(limit);
-
-    const where = { ...(status && { status }) };
-
+    const where = {
+      ...(status && { status }),
+      ...(city && { city: { equals: city, mode: 'insensitive' } }),
+      ...(domain && {
+        OR: [
+          { workingDomain: { contains: domain, mode: 'insensitive' } },
+          { domain: { contains: domain, mode: 'insensitive' } },
+        ],
+      }),
+    };
     const [posts, total] = await Promise.all([
       prisma.post.findMany({
         where,
         skip,
         take: parseInt(limit),
         include: {
-          author: { select: { id: true, firstName: true, lastName: true, email: true } },
-          _count: { select: { messages: true } },
+          author: { select: { id: true, firstName: true, lastName: true, fullName: true, email: true, role: true } },
+          statusHistory: { orderBy: { changedAt: 'desc' } },
+          _count: { select: { messages: true, meetingRequests: true } },
         },
         orderBy: { createdAt: 'desc' },
       }),
       prisma.post.count({ where }),
     ]);
-
     res.json({ posts, total, page: parseInt(page), pages: Math.ceil(total / parseInt(limit)) });
   } catch (err) {
     next(err);
   }
 });
 
-router.delete('/users/:id', async (req, res, next) => {
+router.delete('/posts/:id', [param('id').isString().trim().notEmpty()], validate, async (req, res, next) => {
   try {
-    const user = await prisma.user.findUnique({ where: { id: req.params.id } });
-    if (!user) return res.status(404).json({ error: 'User not found' });
-
-    await prisma.user.update({
+    const post = await prisma.post.findUnique({ where: { id: req.params.id } });
+    if (!post) return res.status(404).json({ error: 'Post not found' });
+    await prisma.post.update({
       where: { id: req.params.id },
-      data: { deletedAt: new Date() },
+      data: {
+        deletedAt: new Date(),
+        status: 'removed',
+        statusHistory: {
+          create: { status: 'removed', changedBy: req.user.id, reason: req.body?.reason || 'Removed by admin' },
+        },
+      },
     });
-
-    await log(req.user.id, 'DELETE_USER', 'user', req.params.id, req);
-    res.json({ message: 'User deactivated' });
+    await recordAuditLog({
+      userId: req.user.id,
+      userName: adminFullName(req.user),
+      role: 'admin',
+      action: 'admin_post_remove',
+      actionType: 'Admin Removed Post',
+      resource: 'post',
+      resourceId: post.id,
+      targetEntity: post.title,
+      details: { reason: req.body?.reason || null },
+      ip: req.ip,
+      userAgent: req.get('user-agent'),
+    });
+    res.json({ message: 'Post removed' });
   } catch (err) {
     next(err);
   }
 });
 
-router.delete('/posts/:id', async (req, res, next) => {
-  try {
-    const post = await prisma.post.findUnique({ where: { id: req.params.id } });
-    if (!post) return res.status(404).json({ error: 'Post not found' });
+const setUserStatus = (action, actionType, status) =>
+  async (req, res, next) => {
+    try {
+      const user = await prisma.user.findUnique({ where: { id: req.params.id } });
+      if (!user) return res.status(404).json({ error: 'User not found' });
+      const updated = await prisma.user.update({
+        where: { id: req.params.id },
+        data: { status },
+      });
+      await recordAuditLog({
+        userId: req.user.id,
+        userName: adminFullName(req.user),
+        role: 'admin',
+        action,
+        actionType,
+        resource: 'user',
+        resourceId: user.id,
+        targetEntity: user.email,
+        ip: req.ip,
+        userAgent: req.get('user-agent'),
+      });
+      res.json({ user: { id: updated.id, status: updated.status } });
+    } catch (err) {
+      next(err);
+    }
+  };
 
-    await prisma.post.update({
+router.post(
+  '/users/:id/suspend',
+  [param('id').isString().trim().notEmpty()],
+  validate,
+  setUserStatus('admin_user_suspend', 'User Suspended', 'suspended')
+);
+router.post(
+  '/users/:id/reactivate',
+  [param('id').isString().trim().notEmpty()],
+  validate,
+  setUserStatus('admin_user_reactivate', 'User Reactivated', 'active')
+);
+router.post(
+  '/users/:id/deactivate',
+  [param('id').isString().trim().notEmpty()],
+  validate,
+  setUserStatus('admin_user_deactivate', 'User Deactivated', 'deactivated')
+);
+
+router.post('/users/:id/verify-domain', [param('id').isString().trim().notEmpty()], validate, async (req, res, next) => {
+  try {
+    const user = await prisma.user.findUnique({ where: { id: req.params.id } });
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    const updated = await prisma.user.update({
       where: { id: req.params.id },
-      data: { deletedAt: new Date(), status: 'expired' },
+      data: { domainVerified: true },
+    });
+    await recordAuditLog({
+      userId: req.user.id,
+      userName: adminFullName(req.user),
+      role: 'admin',
+      action: 'admin_verify_domain',
+      actionType: 'Domain Verified',
+      resource: 'user',
+      resourceId: user.id,
+      targetEntity: user.email,
+      ip: req.ip,
+      userAgent: req.get('user-agent'),
+    });
+    res.json({ user: { id: updated.id, domainVerified: true } });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/users/:id/hard-delete', [param('id').isString().trim().notEmpty()], validate, async (req, res, next) => {
+  try {
+    const user = await prisma.user.findUnique({ where: { id: req.params.id } });
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    await prisma.$transaction([
+      prisma.message.updateMany({ where: { OR: [{ senderId: user.id }, { recipientId: user.id }] }, data: { deletedAt: new Date() } }),
+      prisma.user.update({
+        where: { id: user.id },
+        data: {
+          deletedAt: new Date(),
+          status: 'deactivated',
+          email: `deleted-${user.id}@deleted.invalid`,
+          firstName: 'Deleted',
+          lastName: 'User',
+          fullName: 'Deleted User',
+          passwordHash: '',
+          institution: null,
+          bio: null,
+          city: null,
+          country: null,
+          expertiseTags: [],
+          interestTags: [],
+          portfolioSummary: null,
+          portfolioLinks: [],
+          preferredContactMethod: null,
+          preferredContactValue: null,
+          avatar: null,
+          verifyToken: null,
+          refreshToken: null,
+        },
+      }),
+    ]);
+
+    await recordAuditLog({
+      userId: req.user.id,
+      userName: adminFullName(req.user),
+      role: 'admin',
+      action: 'admin_user_hard_delete',
+      actionType: 'User Hard Deleted',
+      resource: 'user',
+      resourceId: user.id,
+      targetEntity: user.email,
+      ip: req.ip,
+      userAgent: req.get('user-agent'),
     });
 
-    await log(req.user.id, 'DELETE_POST', 'post', req.params.id, req);
-    res.json({ message: 'Post removed' });
+    res.json({ message: 'User permanently anonymized' });
   } catch (err) {
     next(err);
   }
@@ -122,11 +298,14 @@ router.delete('/posts/:id', async (req, res, next) => {
 
 router.get('/stats', async (req, res, next) => {
   try {
-    const [totalUsers, totalPosts, activePosts, totalMessages] = await Promise.all([
+    const [totalUsers, totalPosts, activePosts, partnerFound, scheduled, totalMessages, totalMeetings] = await Promise.all([
       prisma.user.count({ where: { deletedAt: null } }),
-      prisma.post.count(),
+      prisma.post.count({ where: { deletedAt: null } }),
       prisma.post.count({ where: { status: 'active', deletedAt: null } }),
+      prisma.post.count({ where: { status: 'partner_found' } }),
+      prisma.post.count({ where: { status: 'meeting_scheduled' } }),
       prisma.message.count({ where: { deletedAt: null } }),
+      prisma.meetingRequest.count(),
     ]);
 
     const usersByRole = await prisma.user.groupBy({
@@ -139,7 +318,11 @@ router.get('/stats', async (req, res, next) => {
       totalUsers,
       totalPosts,
       activePosts,
+      partnerFound,
+      meetingsScheduled: scheduled,
       totalMessages,
+      totalMeetings,
+      matchRate: totalPosts ? Math.round((partnerFound / totalPosts) * 1000) / 10 : 0,
       usersByRole: usersByRole.map((r) => ({ role: r.role, count: r._count.role })),
     });
   } catch (err) {
@@ -147,19 +330,140 @@ router.get('/stats', async (req, res, next) => {
   }
 });
 
-router.get('/audit-logs', async (req, res, next) => {
-  try {
-    const { page = 1, limit = 50 } = req.query;
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+router.get(
+  '/audit-logs',
+  [
+    query('page').optional().isInt({ min: 1 }),
+    query('limit').optional().isInt({ min: 1, max: 500 }),
+    query('userId').optional().isUUID(),
+    query('action').optional().isString(),
+    query('from').optional().isISO8601(),
+    query('to').optional().isISO8601(),
+    query('result').optional().isIn(['success', 'failure', 'warning']),
+  ],
+  validate,
+  async (req, res, next) => {
+    try {
+      const { page = 1, limit = 100, userId, action, from, to, result } = req.query;
+      const skip = (parseInt(page) - 1) * parseInt(limit);
+      const where = {
+        ...(userId && { userId }),
+        ...(action && { action: { contains: action, mode: 'insensitive' } }),
+        ...(result && { resultStatus: result }),
+        ...((from || to) && {
+          createdAt: {
+            ...(from && { gte: new Date(from) }),
+            ...(to && { lte: new Date(to) }),
+          },
+        }),
+      };
 
-    const logs = await prisma.auditLog.findMany({
-      skip,
-      take: parseInt(limit),
-      include: { user: { select: { id: true, email: true } } },
-      orderBy: { createdAt: 'desc' },
+      const [logs, total] = await Promise.all([
+        prisma.auditLog.findMany({
+          where,
+          skip,
+          take: parseInt(limit),
+          include: { user: { select: { id: true, email: true, role: true } } },
+          orderBy: { createdAt: 'desc' },
+        }),
+        prisma.auditLog.count({ where }),
+      ]);
+
+      res.json({ logs, total, page: parseInt(page), pages: Math.ceil(total / parseInt(limit)) });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+router.get('/audit-logs/export', async (req, res, next) => {
+  try {
+    const where = {};
+    if (req.query.userId) where.userId = req.query.userId;
+    if (req.query.action) where.action = { contains: req.query.action, mode: 'insensitive' };
+    if (req.query.result) where.resultStatus = req.query.result;
+    if (req.query.from || req.query.to) {
+      where.createdAt = {
+        ...(req.query.from && { gte: new Date(req.query.from) }),
+        ...(req.query.to && { lte: new Date(req.query.to) }),
+      };
+    }
+
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="audit-logs-${new Date().toISOString().slice(0, 10)}.csv"`
+    );
+
+    const cols = [
+      'id',
+      'createdAt',
+      'userId',
+      'userName',
+      'role',
+      'actionType',
+      'resource',
+      'resourceId',
+      'targetEntity',
+      'resultStatus',
+      'ipPreview',
+      'hash',
+      'prevHash',
+    ];
+    res.write(cols.join(',') + '\n');
+
+    const escape = (v) => {
+      if (v === null || v === undefined) return '';
+      const s = String(v).replace(/"/g, '""');
+      return /[",\n]/.test(s) ? `"${s}"` : s;
+    };
+
+    const PAGE = 500;
+    let cursor;
+    while (true) {
+      const batch = await prisma.auditLog.findMany({
+        where,
+        take: PAGE,
+        ...(cursor && { skip: 1, cursor: { id: cursor } }),
+        orderBy: { createdAt: 'asc' },
+      });
+      if (batch.length === 0) break;
+      for (const log of batch) {
+        res.write(
+          cols
+            .map((c) =>
+              c === 'createdAt' && log[c]
+                ? escape(new Date(log[c]).toISOString())
+                : escape(log[c])
+            )
+            .join(',') + '\n'
+        );
+      }
+      cursor = batch[batch.length - 1].id;
+      if (batch.length < PAGE) break;
+    }
+
+    await recordAuditLog({
+      userId: req.user.id,
+      userName: adminFullName(req.user),
+      role: 'admin',
+      action: 'admin_audit_export',
+      actionType: 'Audit Log CSV Exported',
+      resource: 'audit_log',
+      ip: req.ip,
+      userAgent: req.get('user-agent'),
     });
 
-    res.json({ logs });
+    res.end();
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/audit-logs/verify-chain', async (req, res, next) => {
+  try {
+    const result = await verifyAuditChain();
+    res.json(result);
   } catch (err) {
     next(err);
   }

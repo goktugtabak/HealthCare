@@ -1,11 +1,11 @@
 const nodemailer = require('nodemailer');
 const logger = require('../middleware/logger');
+const prisma = require('../lib/prisma');
 
 let transporter;
 
 const getTransporter = () => {
   if (transporter) return transporter;
-
   transporter = nodemailer.createTransport({
     host: process.env.SMTP_HOST || 'smtp.gmail.com',
     port: parseInt(process.env.SMTP_PORT) || 587,
@@ -15,16 +15,25 @@ const getTransporter = () => {
       pass: process.env.SMTP_PASS,
     },
   });
-
   return transporter;
 };
 
+const wrap = (innerHtml) => `
+  <div style="font-family:system-ui,sans-serif;max-width:600px;margin:24px auto;background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:32px">
+    <div style="font-weight:700;font-size:18px;color:#0ea5e9;margin-bottom:16px">HEALTH AI</div>
+    ${innerHtml}
+    <p style="color:#94a3b8;font-size:12px;margin-top:32px">
+      This is an automated notification from HEALTH AI. You can manage email preferences in your profile.
+    </p>
+  </div>
+`;
+
 const sendMail = async ({ to, subject, html }) => {
-  if (process.env.NODE_ENV === 'test') return;
+  if (process.env.NODE_ENV === 'test') return { skipped: true };
 
   if (!process.env.SMTP_USER) {
-    logger.warn(`[Email skipped - no SMTP config] To: ${to} | Subject: ${subject}`);
-    return;
+    logger.warn(`[Email skipped — no SMTP_USER] To: ${to} | Subject: ${subject}`);
+    return { skipped: true };
   }
 
   try {
@@ -35,57 +44,124 @@ const sendMail = async ({ to, subject, html }) => {
       html,
     });
     logger.info(`Email sent to ${to}: ${subject}`);
+    return { sent: true };
   } catch (err) {
     logger.error(`Email send failed to ${to}: ${err.message}`);
-    throw err;
+    return { error: err.message };
   }
 };
 
+const userWantsEmail = async (userId) => {
+  if (!userId) return false;
+  const u = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { notifyEmail: true, status: true, deletedAt: true },
+  });
+  return !!u && !u.deletedAt && u.status === 'active' && u.notifyEmail;
+};
+
 const sendVerificationEmail = (email, firstName, token) => {
-  const verifyUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/verify-email?token=${token}`;
+  const verifyUrl = `${process.env.FRONTEND_URL || 'http://localhost:8080'}/verify-email?token=${token}`;
   return sendMail({
     to: email,
     subject: 'Verify your HEALTH AI account',
-    html: `
-      <div style="font-family:sans-serif;max-width:600px;margin:auto">
-        <h2>Welcome to HEALTH AI, ${firstName}!</h2>
-        <p>Click the button below to verify your email address:</p>
-        <a href="${verifyUrl}" style="display:inline-block;padding:12px 24px;background:#0ea5e9;color:#fff;border-radius:6px;text-decoration:none;font-weight:bold">
-          Verify Email
-        </a>
-        <p style="color:#888;font-size:12px;margin-top:24px">
-          This link expires in 24 hours. If you did not register, you can safely ignore this email.
-        </p>
-      </div>
-    `,
+    html: wrap(`
+      <h2 style="color:#0f172a">Welcome to HEALTH AI, ${firstName}!</h2>
+      <p>Click the button below to verify your email address.</p>
+      <p><a href="${verifyUrl}" style="display:inline-block;padding:12px 24px;background:#0ea5e9;color:#fff;border-radius:8px;text-decoration:none;font-weight:bold">Verify Email</a></p>
+      <p style="color:#94a3b8;font-size:12px">This link expires in 24 hours.</p>
+    `),
   });
 };
 
-const sendNdaNotification = (email, firstName, postTitle) =>
-  sendMail({
-    to: email,
-    subject: 'NDA Required — HEALTH AI',
-    html: `
-      <div style="font-family:sans-serif;max-width:600px;margin:auto">
-        <h2>NDA Required</h2>
-        <p>Hi ${firstName},</p>
-        <p>To access sensitive details about "<strong>${postTitle}</strong>", you must accept the NDA.</p>
-        <p>Log in to HEALTH AI to review and accept the agreement.</p>
-      </div>
-    `,
+const sendMeetingRequestEmail = async (recipientId, requesterName, postTitle) => {
+  if (!(await userWantsEmail(recipientId))) return { skipped: true };
+  const u = await prisma.user.findUnique({ where: { id: recipientId }, select: { email: true, firstName: true } });
+  return sendMail({
+    to: u.email,
+    subject: 'New collaboration request — HEALTH AI',
+    html: wrap(`
+      <h2 style="color:#0f172a">New collaboration request</h2>
+      <p>Hi ${u.firstName || ''},</p>
+      <p><strong>${requesterName}</strong> sent you a first-contact request about <em>${postTitle}</em>.</p>
+      <p>Log in to HEALTH AI to review the request, accept the NDA, and propose meeting slots.</p>
+    `),
   });
+};
 
-const sendMeetingConfirmation = (email, firstName, meetingTime, externalUrl) =>
-  sendMail({
-    to: email,
-    subject: 'Meeting Confirmed — HEALTH AI',
-    html: `
-      <div style="font-family:sans-serif;max-width:600px;margin:auto">
-        <h2>Meeting Confirmed!</h2>
-        <p>Hi ${firstName}, your meeting is scheduled for <strong>${new Date(meetingTime).toLocaleString()}</strong>.</p>
-        ${externalUrl ? `<p><a href="${externalUrl}">Join meeting</a></p>` : ''}
-      </div>
-    `,
+const sendMeetingAcceptedEmail = async (requesterId, ownerName, postTitle, slot) => {
+  if (!(await userWantsEmail(requesterId))) return { skipped: true };
+  const u = await prisma.user.findUnique({ where: { id: requesterId }, select: { email: true, firstName: true } });
+  const slotText = slot ? new Date(slot).toLocaleString() : 'no slot selected yet';
+  return sendMail({
+    to: u.email,
+    subject: 'Meeting accepted — HEALTH AI',
+    html: wrap(`
+      <h2 style="color:#0f172a">Meeting accepted</h2>
+      <p>Hi ${u.firstName || ''},</p>
+      <p><strong>${ownerName}</strong> accepted your collaboration request for <em>${postTitle}</em>.</p>
+      <p>Selected slot: <strong>${slotText}</strong>.</p>
+      <p>Coordinate the external meeting link via the in-app message box.</p>
+    `),
   });
+};
 
-module.exports = { sendVerificationEmail, sendNdaNotification, sendMeetingConfirmation };
+const sendMeetingDeclinedEmail = async (requesterId, ownerName, postTitle, reason) => {
+  if (!(await userWantsEmail(requesterId))) return { skipped: true };
+  const u = await prisma.user.findUnique({ where: { id: requesterId }, select: { email: true, firstName: true } });
+  return sendMail({
+    to: u.email,
+    subject: 'Meeting request declined — HEALTH AI',
+    html: wrap(`
+      <h2 style="color:#0f172a">Request declined</h2>
+      <p>Hi ${u.firstName || ''},</p>
+      <p><strong>${ownerName}</strong> declined your request for <em>${postTitle}</em>.</p>
+      ${reason ? `<p>Note: ${reason}</p>` : ''}
+      <p>You can still browse other posts and find a different partner.</p>
+    `),
+  });
+};
+
+const sendAccountDeletionScheduledEmail = async (userId) => {
+  const u = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { email: true, firstName: true, notifyEmail: true },
+  });
+  if (!u || !u.notifyEmail) return { skipped: true };
+  const ttl = parseInt(process.env.DELETION_TTL_MS, 10) || 72 * 60 * 60 * 1000;
+  const purgeDate = new Date(Date.now() + ttl).toLocaleString();
+  return sendMail({
+    to: u.email,
+    subject: 'Account deletion scheduled — HEALTH AI',
+    html: wrap(`
+      <h2 style="color:#0f172a">Account deletion scheduled</h2>
+      <p>Hi ${u.firstName || ''},</p>
+      <p>We received your account deletion request. Your account and personal data will be permanently removed on:</p>
+      <p><strong>${purgeDate}</strong></p>
+      <p>If this was a mistake, log in within the grace period to cancel deletion.</p>
+    `),
+  });
+};
+
+const sendNdaAcceptedEmail = async (ownerId, requesterName, postTitle) => {
+  if (!(await userWantsEmail(ownerId))) return { skipped: true };
+  const u = await prisma.user.findUnique({ where: { id: ownerId }, select: { email: true, firstName: true } });
+  return sendMail({
+    to: u.email,
+    subject: 'NDA accepted — HEALTH AI',
+    html: wrap(`
+      <h2 style="color:#0f172a">NDA accepted</h2>
+      <p>Hi ${u.firstName || ''},</p>
+      <p><strong>${requesterName}</strong> accepted the confidentiality acknowledgement for your post <em>${postTitle}</em>. The first-contact request is now active.</p>
+    `),
+  });
+};
+
+module.exports = {
+  sendVerificationEmail,
+  sendMeetingRequestEmail,
+  sendMeetingAcceptedEmail,
+  sendMeetingDeclinedEmail,
+  sendAccountDeletionScheduledEmail,
+  sendNdaAcceptedEmail,
+};

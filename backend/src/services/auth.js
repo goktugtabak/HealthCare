@@ -1,13 +1,15 @@
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const { v4: uuidv4 } = require('uuid');
-const { PrismaClient } = require('@prisma/client');
+const prisma = require('../lib/prisma');
 const emailService = require('./email');
+const { recordAuditLog } = require('./audit');
 
-const prisma = new PrismaClient();
 const SALT_ROUNDS = 10;
 
-const EDU_EMAIL_RE = /^[^\s@]+@[^\s@]+\.edu$/i;
+// FR-01: Accept .edu, .edu.tr, .edu.au, .edu.<cc> two- or three-letter
+// country codes. Personal providers stay rejected.
+const EDU_EMAIL_RE = /^[^\s@]+@[^\s@]+\.edu(\.[a-z]{2,3})?$/i;
 
 const hashPassword = (password) => bcrypt.hash(password, SALT_ROUNDS);
 const comparePassword = (plain, hash) => bcrypt.compare(plain, hash);
@@ -22,9 +24,25 @@ const signRefreshToken = (userId) =>
     expiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '7d',
   });
 
-const register = async ({ email, password, firstName, lastName, role, institution }) => {
+const ALLOWED_REGISTER_ROLES = ['engineer', 'healthcare'];
+
+const register = async ({
+  email,
+  password,
+  firstName,
+  lastName,
+  role,
+  institution,
+  city,
+  country,
+}) => {
   if (!EDU_EMAIL_RE.test(email)) {
-    const err = new Error('Only .edu email addresses are accepted');
+    const err = new Error('Only institutional .edu / .edu.tr email addresses are accepted');
+    err.status = 400;
+    throw err;
+  }
+  if (role && !ALLOWED_REGISTER_ROLES.includes(role)) {
+    const err = new Error('Role must be engineer or healthcare');
     err.status = 400;
     throw err;
   }
@@ -45,11 +63,23 @@ const register = async ({ email, password, firstName, lastName, role, institutio
       passwordHash,
       firstName,
       lastName,
+      fullName: `${firstName} ${lastName}`.trim(),
       role: role || 'engineer',
-      institution,
+      institution: institution || null,
+      city: city || null,
+      country: country || null,
       verifyToken,
     },
-    select: { id: true, email: true, firstName: true, lastName: true, role: true },
+    select: {
+      id: true,
+      email: true,
+      firstName: true,
+      lastName: true,
+      role: true,
+      city: true,
+      country: true,
+      institution: true,
+    },
   });
 
   await emailService.sendVerificationEmail(email, firstName, verifyToken);
@@ -57,19 +87,64 @@ const register = async ({ email, password, firstName, lastName, role, institutio
   return user;
 };
 
-const login = async ({ email, password }) => {
+const login = async ({ email, password, ip, userAgent }) => {
   const user = await prisma.user.findUnique({
-    where: { email, deletedAt: null },
+    where: { email },
   });
 
-  if (!user) {
+  if (!user || user.deletedAt) {
+    await recordAuditLog({
+      action: 'login',
+      actionType: 'Login',
+      resource: 'user',
+      resourceId: null,
+      targetEntity: email,
+      resultStatus: 'failure',
+      ip,
+      userAgent,
+      details: { reason: 'unknown_email' },
+    });
     const err = new Error('Invalid credentials');
     err.status = 401;
     throw err;
   }
 
+  if (user.status !== 'active') {
+    await recordAuditLog({
+      userId: user.id,
+      userName: user.fullName,
+      role: user.role,
+      action: 'login',
+      actionType: 'Login',
+      resource: 'user',
+      resourceId: user.id,
+      targetEntity: user.email,
+      resultStatus: 'failure',
+      ip,
+      userAgent,
+      details: { reason: `account_${user.status}` },
+    });
+    const err = new Error(`Account ${user.status}`);
+    err.status = 403;
+    throw err;
+  }
+
   const valid = await comparePassword(password, user.passwordHash);
   if (!valid) {
+    await recordAuditLog({
+      userId: user.id,
+      userName: user.fullName,
+      role: user.role,
+      action: 'login',
+      actionType: 'Login',
+      resource: 'user',
+      resourceId: user.id,
+      targetEntity: user.email,
+      resultStatus: 'failure',
+      ip,
+      userAgent,
+      details: { reason: 'bad_password' },
+    });
     const err = new Error('Invalid credentials');
     err.status = 401;
     throw err;
@@ -80,7 +155,21 @@ const login = async ({ email, password }) => {
 
   await prisma.user.update({
     where: { id: user.id },
-    data: { refreshToken },
+    data: { refreshToken, lastActiveAt: new Date() },
+  });
+
+  await recordAuditLog({
+    userId: user.id,
+    userName: user.fullName,
+    role: user.role,
+    action: 'login',
+    actionType: 'Login',
+    resource: 'user',
+    resourceId: user.id,
+    targetEntity: user.email,
+    resultStatus: 'success',
+    ip,
+    userAgent,
   });
 
   return {
@@ -91,8 +180,12 @@ const login = async ({ email, password }) => {
       email: user.email,
       firstName: user.firstName,
       lastName: user.lastName,
+      fullName: user.fullName,
       role: user.role,
       verifiedAt: user.verifiedAt,
+      emailVerified: user.emailVerified,
+      domainVerified: user.domainVerified,
+      onboardingCompleted: user.onboardingCompleted,
     },
   };
 };
@@ -107,7 +200,18 @@ const verifyEmail = async (token) => {
 
   await prisma.user.update({
     where: { id: user.id },
-    data: { verifiedAt: new Date(), verifyToken: null },
+    data: { verifiedAt: new Date(), emailVerified: true, verifyToken: null },
+  });
+
+  await recordAuditLog({
+    userId: user.id,
+    userName: user.fullName,
+    role: user.role,
+    action: 'verify_email',
+    actionType: 'Email Verified',
+    resource: 'user',
+    resourceId: user.id,
+    targetEntity: user.email,
   });
 
   return { message: 'Email verified successfully' };
@@ -136,4 +240,18 @@ const refreshAccessToken = async (refreshToken) => {
   return { accessToken };
 };
 
-module.exports = { register, login, verifyEmail, refreshAccessToken };
+const logout = async (userId) => {
+  await prisma.user.update({
+    where: { id: userId },
+    data: { refreshToken: null },
+  });
+};
+
+module.exports = {
+  register,
+  login,
+  verifyEmail,
+  refreshAccessToken,
+  logout,
+  EDU_EMAIL_RE,
+};

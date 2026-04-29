@@ -1,11 +1,10 @@
 const express = require('express');
-const { body, validationResult } = require('express-validator');
-const { PrismaClient } = require('@prisma/client');
+const { body, param, validationResult } = require('express-validator');
+const prisma = require('../lib/prisma');
 const { authenticate, requireVerified } = require('../middleware/auth');
-const emailService = require('../services/email');
+const { recordAuditLog } = require('../services/audit');
 
 const router = express.Router();
-const prisma = new PrismaClient();
 
 const validate = (req, res, next) => {
   const errors = validationResult(req);
@@ -33,63 +32,92 @@ router.get('/', authenticate, async (req, res, next) => {
   }
 });
 
-router.get('/thread/:postId/:userId', authenticate, async (req, res, next) => {
-  try {
-    const { postId, userId } = req.params;
-    const messages = await prisma.message.findMany({
-      where: {
-        postId,
-        deletedAt: null,
-        OR: [
-          { senderId: req.user.id, recipientId: userId },
-          { senderId: userId, recipientId: req.user.id },
-        ],
-      },
-      include: {
-        sender: { select: { id: true, firstName: true, lastName: true } },
-      },
-      orderBy: { createdAt: 'asc' },
-    });
+router.get(
+  '/thread/:postId/:userId',
+  authenticate,
+  [param('postId').isString().trim().notEmpty(), param('userId').isString().trim().notEmpty()],
+  validate,
+  async (req, res, next) => {
+    try {
+      const { postId, userId } = req.params;
+      const messages = await prisma.message.findMany({
+        where: {
+          postId,
+          deletedAt: null,
+          OR: [
+            { senderId: req.user.id, recipientId: userId },
+            { senderId: userId, recipientId: req.user.id },
+          ],
+        },
+        include: { sender: { select: { id: true, firstName: true, lastName: true } } },
+        orderBy: { createdAt: 'asc' },
+      });
 
-    await prisma.message.updateMany({
-      where: { postId, senderId: userId, recipientId: req.user.id, isRead: false },
-      data: { isRead: true },
-    });
+      await prisma.message.updateMany({
+        where: { postId, senderId: userId, recipientId: req.user.id, isRead: false },
+        data: { isRead: true, readAt: new Date() },
+      });
 
-    res.json({ messages });
-  } catch (err) {
-    next(err);
+      res.json({ messages });
+    } catch (err) {
+      next(err);
+    }
   }
-});
+);
+
+const ndaSatisfied = async ({ userId, postId, meetingRequestId }) => {
+  // FR-31: NDA acceptance is universal for any meeting-context thread.
+  // Accept either (a) explicit NDAAcceptance row tied to a meeting
+  // request between the two parties OR (b) any prior message with
+  // ndaAcceptedAt for this post/user pair.
+  if (meetingRequestId) {
+    const acc = await prisma.nDAAcceptance.findFirst({
+      where: { userId, meetingRequestId },
+    });
+    if (acc) return true;
+  }
+  const meetingByPair = await prisma.meetingRequest.findFirst({
+    where: {
+      postId,
+      OR: [{ requestorId: userId }, { recipientId: userId }],
+      ndaAcceptedAt: { not: null },
+    },
+  });
+  if (meetingByPair) return true;
+  const prior = await prisma.message.findFirst({
+    where: { postId, senderId: userId, ndaAcceptedAt: { not: null } },
+  });
+  return !!prior;
+};
 
 router.post(
   '/',
   authenticate,
   requireVerified,
   [
-    body('postId').isUUID().withMessage('Valid post ID required'),
-    body('recipientId').isUUID().withMessage('Valid recipient ID required'),
-    body('content').trim().isLength({ min: 1, max: 2000 }).withMessage('Message content required (max 2000 chars)'),
+    body('postId').isString().trim().notEmpty().withMessage('Valid post ID required'),
+    body('recipientId').isString().trim().notEmpty().withMessage('Valid recipient ID required'),
+    body('content').trim().isLength({ min: 1, max: 2000 }),
+    body('meetingRequestId').optional().isString().trim().notEmpty(),
   ],
   validate,
   async (req, res, next) => {
     try {
-      const { postId, recipientId, content } = req.body;
+      const { postId, recipientId, content, meetingRequestId } = req.body;
 
       const post = await prisma.post.findUnique({ where: { id: postId, deletedAt: null } });
       if (!post) return res.status(404).json({ error: 'Post not found' });
 
-      if (post.confidentiality === 'private') {
-        const existingNda = await prisma.message.findFirst({
-          where: { postId, senderId: req.user.id, ndaAcceptedAt: { not: null } },
+      const ok = await ndaSatisfied({ userId: req.user.id, postId, meetingRequestId });
+      if (!ok) {
+        return res.status(403).json({
+          error: 'NDA acceptance required before messaging',
+          requiresNda: true,
         });
-        if (!existingNda) {
-          return res.status(403).json({ error: 'NDA acceptance required for private posts', requiresNda: true });
-        }
       }
 
       const message = await prisma.message.create({
-        data: { postId, senderId: req.user.id, recipientId, content },
+        data: { postId, senderId: req.user.id, recipientId, content, meetingRequestId: meetingRequestId || null },
         include: {
           sender: { select: { id: true, firstName: true, lastName: true } },
           recipient: { select: { id: true, firstName: true, lastName: true, email: true } },
@@ -102,8 +130,20 @@ router.post(
           type: 'message_received',
           title: 'New message',
           body: `${message.sender.firstName} sent you a message about "${post.title}"`,
-          data: { postId, messageId: message.id },
+          relatedEntityType: 'message',
+          relatedEntityId: message.id,
         },
+      });
+
+      await recordAuditLog({
+        userId: req.user.id,
+        action: 'message_send',
+        actionType: 'Message Sent',
+        resource: 'message',
+        resourceId: message.id,
+        targetEntity: post.title,
+        ip: req.ip,
+        userAgent: req.get('user-agent'),
       });
 
       res.status(201).json(message);
@@ -113,72 +153,30 @@ router.post(
   }
 );
 
-router.post('/:id/accept-nda', authenticate, requireVerified, async (req, res, next) => {
-  try {
-    const message = await prisma.message.findUnique({
-      where: { id: req.params.id },
-      include: { post: true },
-    });
-
-    if (!message) return res.status(404).json({ error: 'Message not found' });
-    if (message.senderId !== req.user.id && message.recipientId !== req.user.id) {
-      return res.status(403).json({ error: 'Forbidden' });
-    }
-
-    const updated = await prisma.message.update({
-      where: { id: req.params.id },
-      data: { ndaAcceptedAt: new Date() },
-    });
-
-    res.json({ message: 'NDA accepted', data: updated });
-  } catch (err) {
-    next(err);
-  }
-});
-
 router.post(
-  '/meeting-request',
+  '/:id/accept-nda',
   authenticate,
   requireVerified,
-  [
-    body('postId').isUUID(),
-    body('recipientId').isUUID(),
-    body('proposedTimes').isArray({ min: 1 }).withMessage('At least one proposed time required'),
-    body('proposedTimes.*').isISO8601(),
-    body('externalUrl').optional().isURL(),
-    body('notes').optional().isString().isLength({ max: 1000 }),
-  ],
+  [param('id').isString().trim().notEmpty()],
   validate,
   async (req, res, next) => {
     try {
-      const { postId, recipientId, proposedTimes, externalUrl, notes } = req.body;
-
-      const meetingRequest = await prisma.meetingRequest.create({
-        data: {
-          postId,
-          requestorId: req.user.id,
-          recipientId,
-          proposedTimes,
-          externalUrl,
-          notes,
-        },
-        include: {
-          requestor: { select: { id: true, firstName: true, lastName: true } },
-          post: { select: { id: true, title: true } },
-        },
+      const message = await prisma.message.findUnique({
+        where: { id: req.params.id },
+        include: { post: true },
       });
 
-      await prisma.notification.create({
-        data: {
-          userId: recipientId,
-          type: 'meeting_requested',
-          title: 'Meeting request',
-          body: `${meetingRequest.requestor.firstName} requested a meeting about "${meetingRequest.post.title}"`,
-          data: { meetingRequestId: meetingRequest.id, postId },
-        },
+      if (!message) return res.status(404).json({ error: 'Message not found' });
+      if (message.senderId !== req.user.id && message.recipientId !== req.user.id) {
+        return res.status(403).json({ error: 'Forbidden' });
+      }
+
+      const updated = await prisma.message.update({
+        where: { id: req.params.id },
+        data: { ndaAcceptedAt: new Date() },
       });
 
-      res.status(201).json(meetingRequest);
+      res.json({ message: 'NDA accepted', data: updated });
     } catch (err) {
       next(err);
     }
