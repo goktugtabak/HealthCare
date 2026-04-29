@@ -72,6 +72,15 @@ router.patch(
     body('interestTags.*').optional().isString().trim().isLength({ min: 1, max: 100 }),
     body('portfolioSummary').optional().isString().isLength({ max: 2000 }).matches(/^[^\x00]*$/),
     body('portfolioLinks').optional().isArray({ max: 20 }),
+    body('portfolioLinks.*')
+      .optional()
+      .isURL({
+        protocols: ['http', 'https'],
+        require_protocol: true,
+        require_host: true,
+        require_valid_protocol: true,
+      })
+      .isLength({ max: 500 }),
     body('preferredContactMethod').optional().isIn(['email', 'phone', 'linkedin', 'other']),
     body('preferredContactValue').optional().isString().trim().isLength({ max: 200 }).matches(/^[^\x00]*$/),
     body('notifyInApp').optional().isBoolean(),

@@ -68,6 +68,10 @@ router.post(
     body('introductoryMessage').isString().trim().isLength({ min: 1, max: 2000 }).matches(/^[^\x00]*$/),
     body('proposedSlots').optional().isArray({ min: 1, max: 5 }),
     body('proposedSlots.*').optional().isString().isISO8601(),
+    body('externalUrl')
+      .optional()
+      .isURL({ protocols: ['http', 'https'], require_protocol: true, require_host: true, require_valid_protocol: true })
+      .isLength({ max: 500 }),
   ],
   validate,
   async (req, res, next) => {

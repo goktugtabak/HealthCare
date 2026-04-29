@@ -141,3 +141,69 @@ describe('M-05 — array length caps', () => {
     expect(res.status).toBe(400);
   });
 });
+
+describe('M-06 — portfolioLinks + externalUrl protocol whitelist', () => {
+  let userToken;
+
+  beforeAll(async () => {
+    userToken = await login('mehmet.demir@metu.edu.tr');
+  });
+
+  afterAll(async () => {
+    await prisma.$disconnect();
+  });
+
+  test('PATCH /me portfolioLinks: javascript: → 400', async () => {
+    const res = await request(app)
+      .patch('/api/users/me')
+      .set('Authorization', `Bearer ${userToken}`)
+      .send({ portfolioLinks: ['javascript:alert(1)'] });
+    expect(res.status).toBe(400);
+  });
+
+  test('PATCH /me portfolioLinks: file:// → 400', async () => {
+    const res = await request(app)
+      .patch('/api/users/me')
+      .set('Authorization', `Bearer ${userToken}`)
+      .send({ portfolioLinks: ['file:///etc/passwd'] });
+    expect(res.status).toBe(400);
+  });
+
+  test('PATCH /me portfolioLinks: data: → 400', async () => {
+    const res = await request(app)
+      .patch('/api/users/me')
+      .set('Authorization', `Bearer ${userToken}`)
+      .send({ portfolioLinks: ['data:text/html,<script>alert(1)</script>'] });
+    expect(res.status).toBe(400);
+  });
+
+  test('PATCH /me portfolioLinks: ftp:// → 400', async () => {
+    const res = await request(app)
+      .patch('/api/users/me')
+      .set('Authorization', `Bearer ${userToken}`)
+      .send({ portfolioLinks: ['ftp://files.example.com'] });
+    expect(res.status).toBe(400);
+  });
+
+  test('PATCH /me portfolioLinks: https://github.com/user → 200', async () => {
+    const res = await request(app)
+      .patch('/api/users/me')
+      .set('Authorization', `Bearer ${userToken}`)
+      .send({ portfolioLinks: ['https://github.com/user'] });
+    expect(res.status).toBe(200);
+  });
+
+  test('POST /api/meetings externalUrl: javascript: → 400', async () => {
+    const res = await request(app)
+      .post('/api/meetings')
+      .set('Authorization', `Bearer ${userToken}`)
+      .send({
+        postId: 'p3',
+        introductoryMessage: 'jest-test M-06 bad external',
+        ndaAccepted: true,
+        proposedSlots: ['2026-10-01T10:00:00Z'],
+        externalUrl: 'javascript:void(0)',
+      });
+    expect(res.status).toBe(400);
+  });
+});
