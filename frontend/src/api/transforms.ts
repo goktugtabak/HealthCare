@@ -127,6 +127,18 @@ type ApiPost = Omit<Post, "status" | "projectStage" | "confidentialityLevel" | "
   ownerRole?: Role;
 };
 
+const toIsoString = (value: unknown): string => {
+  if (!value) return "";
+  if (typeof value === "string") return value;
+  if (value instanceof Date) {
+    const t = value.getTime();
+    return Number.isNaN(t) ? "" : value.toISOString();
+  }
+  const d = new Date(value as string);
+  const t = d.getTime();
+  return Number.isNaN(t) ? "" : d.toISOString();
+};
+
 export const normalizePost = (p: ApiPost): Post => {
   const confidentiality = p.confidentialityLevel || p.confidentiality || "public";
   const statusHistory: PostStatusHistoryEntry[] | undefined = p.statusHistory?.map((h) => ({
@@ -149,11 +161,11 @@ export const normalizePost = (p: ApiPost): Post => {
     confidentialityLevel: fromDb.confidentiality(confidentiality),
     country: p.country || "",
     city: p.city || "",
-    expiryDate: typeof p.expiryDate === "string" ? p.expiryDate : p.expiryDate ? new Date(p.expiryDate).toISOString() : "",
+    expiryDate: toIsoString(p.expiryDate),
     autoClose: !!p.autoClose,
     status: fromDb.postStatus(p.status),
-    createdAt: typeof p.createdAt === "string" ? p.createdAt : new Date(p.createdAt).toISOString(),
-    updatedAt: typeof p.updatedAt === "string" ? p.updatedAt : new Date(p.updatedAt).toISOString(),
+    createdAt: toIsoString(p.createdAt) || new Date().toISOString(),
+    updatedAt: toIsoString(p.updatedAt) || toIsoString(p.createdAt) || new Date().toISOString(),
     commitmentLevel: p.commitmentLevel || "",
     highLevelIdea: p.highLevelIdea || "",
     notesPreview: p.notesPreview || "",
@@ -209,13 +221,9 @@ export const normalizeUser = (u: ApiUser): User => {
       email: u.notifyEmail ?? true,
     },
     bio: u.bio || "",
-    createdAt: typeof u.createdAt === "string" ? u.createdAt : new Date(u.createdAt).toISOString(),
-    deletionRequestedAt:
-      u.deletionRequestedAt ?? null,
-    lastActiveAt:
-      typeof u.lastActiveAt === "string" || !u.lastActiveAt
-        ? u.lastActiveAt ?? undefined
-        : new Date(u.lastActiveAt).toISOString(),
+    createdAt: toIsoString(u.createdAt) || new Date().toISOString(),
+    deletionRequestedAt: u.deletionRequestedAt ? toIsoString(u.deletionRequestedAt) : null,
+    lastActiveAt: u.lastActiveAt ? toIsoString(u.lastActiveAt) : undefined,
   } as User;
 };
 
@@ -242,20 +250,11 @@ export const normalizeMeeting = (m: ApiMeeting): MeetingRequest => ({
   requesterRole: (m.requesterRole as Role) || "engineer",
   introductoryMessage: m.introductoryMessage || "",
   ndaAccepted: !!m.ndaAccepted,
-  ndaAcceptedAt:
-    m.ndaAcceptedAt
-      ? typeof m.ndaAcceptedAt === "string"
-        ? m.ndaAcceptedAt
-        : m.ndaAcceptedAt.toISOString()
-      : null,
+  ndaAcceptedAt: m.ndaAcceptedAt ? toIsoString(m.ndaAcceptedAt) : null,
   proposedSlots: Array.isArray(m.proposedSlots) ? (m.proposedSlots as string[]) : [],
-  selectedSlot: m.selectedSlot
-    ? typeof m.selectedSlot === "string"
-      ? m.selectedSlot
-      : m.selectedSlot.toISOString()
-    : null,
+  selectedSlot: m.selectedSlot ? toIsoString(m.selectedSlot) : null,
   status: fromDb.meetingStatus(m.status),
-  createdAt: typeof m.createdAt === "string" ? m.createdAt : m.createdAt.toISOString(),
+  createdAt: toIsoString(m.createdAt) || new Date().toISOString(),
 });
 
 type ApiNotification = {
