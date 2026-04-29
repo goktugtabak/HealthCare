@@ -176,3 +176,38 @@ describe("app flows", () => {
     expect(screen.getByText(/mehmet\.demir@metu\.edu\.tr/i)).toBeInTheDocument();
   });
 });
+
+describe("F-01 — ProtectedRoute does not flicker to /login during AuthContext bootstrap", () => {
+  it("waits for /api/auth/me to resolve before redirecting unauthenticated users", async () => {
+    // Force real-mode + a valid token in localStorage. authApi.fetchCurrentUser
+    // is mocked to delay 80ms — long enough for React to render at least once
+    // before the bootstrap settles.
+    vi.stubEnv("VITE_USE_MOCK_DATA", "false");
+    window.localStorage.setItem("health-ai-access-token", "test-token");
+
+    const engineer = mockUsers.find((u) => u.id === "u2") as User;
+    const fetchSpy = vi
+      .spyOn(await import("@/api/auth"), "fetchCurrentUser")
+      .mockImplementation(
+        () =>
+          new Promise((resolve) =>
+            setTimeout(() => resolve({ ...engineer, onboardingCompleted: true }), 80),
+          ),
+      );
+
+    const { container } = renderApp("/dashboard");
+
+    // Immediately after render, the ProtectedRoute should be in its loading
+    // state — no /login redirect, no dashboard content yet.
+    expect(container.textContent).not.toMatch(/sign in/i);
+    expect(container.textContent).not.toMatch(/welcome back/i);
+
+    // After the bootstrap resolves, the dashboard renders.
+    expect(
+      await screen.findByRole("heading", { name: /latest opportunities/i }, { timeout: 2000 }),
+    ).toBeInTheDocument();
+
+    fetchSpy.mockRestore();
+    vi.unstubAllEnvs();
+  });
+});

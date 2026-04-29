@@ -40,7 +40,16 @@ export const ProtectedRoute = ({
   allowIncomplete?: boolean;
   requireAdmin?: boolean;
 }) => {
-  const { currentUser, isAuthenticated } = useAuth();
+  const { currentUser, isAuthenticated, loading } = useAuth();
+
+  // F-01: hard-loads land here before /api/auth/me resolves. Without this
+  // guard the first render sees isAuthenticated=false (token in localStorage
+  // but currentUser still null) and redirects to /login, even though the
+  // user is logged in. Returning null defers the redirect until bootstrap
+  // settles.
+  if (loading) {
+    return null;
+  }
 
   if (!isAuthenticated || !currentUser) {
     return <Navigate to="/login" replace />;
