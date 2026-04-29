@@ -1,12 +1,4 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
-import {
-  mockMeetingRequests,
-  mockMessages,
-  mockNotifications,
-  mockPosts,
-  mockUsers,
-  mockActivityLogs,
-} from "@/data/mockData";
 import type {
   ActivityLog,
   MeetingRequest,
@@ -27,6 +19,33 @@ import {
   getAccessToken,
 } from "@/api";
 import { sha256Hex } from "@/lib/hash";
+
+// P-02: gate mockData behind a build-time literal so production
+// (VITE_USE_MOCK_DATA=false) tree-shakes the 568-LoC fixture file
+// out entirely. Vite replaces `import.meta.env.VITE_USE_MOCK_DATA`
+// with the literal string at build time, so the if-branch below
+// becomes `if (false) { ... }` and Rollup eliminates both the
+// dynamic-import call and the chunk it would have emitted.
+// Default-true mirrors `isMockMode()` so vitest (which leaves the
+// var unset) continues to load the fixtures.
+const USE_MOCK_BUILD = import.meta.env.VITE_USE_MOCK_DATA !== "false";
+
+let mockUsers: User[] = [];
+let mockPosts: Post[] = [];
+let mockMeetingRequests: MeetingRequest[] = [];
+let mockMessages: Message[] = [];
+let mockNotifications: Notification[] = [];
+let mockActivityLogs: ActivityLog[] = [];
+
+if (USE_MOCK_BUILD) {
+  const m = await import("@/data/mockData");
+  mockUsers = m.mockUsers;
+  mockPosts = m.mockPosts;
+  mockMeetingRequests = m.mockMeetingRequests;
+  mockMessages = m.mockMessages;
+  mockNotifications = m.mockNotifications;
+  mockActivityLogs = m.mockActivityLogs;
+}
 
 const STORAGE_KEY = "health-ai-platform-data";
 
