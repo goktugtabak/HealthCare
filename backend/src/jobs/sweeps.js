@@ -64,6 +64,22 @@ const sweepDeletions = async () => {
   return due.length;
 };
 
+// FR-53: every audit row is written with a retentionUntil 24 months out.
+// Without this sweep the column is decoration; with it, the chain only
+// retains the most recent 24 months of activity. The chain still verifies
+// after a sweep — see the note in services/audit.js verifyAuditChain.
+const sweepExpiredAuditLogs = async () => {
+  const result = await prisma.auditLog.deleteMany({
+    where: {
+      retentionUntil: { lt: new Date() },
+    },
+  });
+  if (result.count > 0) {
+    logger.info(`Audit retention sweep: deleted ${result.count} expired audit log entries.`);
+  }
+  return result.count;
+};
+
 const start = () => {
   // Hourly auto-expire sweep
   cron.schedule('0 * * * *', async () => {
@@ -85,11 +101,21 @@ const start = () => {
     }
   });
 
+  // Daily 03:00 audit retention sweep — drops rows past their retentionUntil.
+  cron.schedule('0 3 * * *', async () => {
+    try {
+      await sweepExpiredAuditLogs();
+    } catch (err) {
+      logger.error(`Audit retention sweep failed: ${err.message}`);
+    }
+  });
+
   // Run once on boot so demo / restarts don't wait an hour
   expireDuePosts().catch((err) => logger.error(`Boot expire failed: ${err.message}`));
   sweepDeletions().catch((err) => logger.error(`Boot purge failed: ${err.message}`));
+  sweepExpiredAuditLogs().catch((err) => logger.error(`Boot audit sweep failed: ${err.message}`));
 
-  logger.info('Cron sweeps scheduled (hourly auto-expire + hard-delete).');
+  logger.info('Cron sweeps scheduled (hourly auto-expire + hard-delete + daily audit retention).');
 };
 
-module.exports = { start, sweepDeletions };
+module.exports = { start, sweepDeletions, sweepExpiredAuditLogs };

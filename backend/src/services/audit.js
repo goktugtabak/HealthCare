@@ -83,6 +83,11 @@ const recordAuditLog = async ({
   }
 };
 
+// FR-53 NOTE: After a retention sweep (jobs/sweeps.sweepExpiredAuditLogs),
+// the chain still verifies — but the chain HEAD is the oldest non-expired
+// row, not the original genesis. The verifier walks from the oldest kept
+// row forward and treats its prevHash as the new origin. This is
+// intentional per the 24-month retention requirement.
 const verifyAuditChain = async () => {
   const logs = await prisma.auditLog.findMany({
     orderBy: { createdAt: 'asc' },

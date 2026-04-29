@@ -1,5 +1,7 @@
 require('./setup');
 const { sha256, computeNextHash } = require('../src/services/audit');
+const { sweepExpiredAuditLogs } = require('../src/jobs/sweeps');
+const prisma = require('../src/lib/prisma');
 
 describe('audit hash chain primitives', () => {
   test('sha256 is deterministic', () => {
@@ -26,5 +28,25 @@ describe('audit hash chain primitives', () => {
     const a = computeNextHash('aaaa', { action: 'x', ts: '1' });
     const b = computeNextHash('bbbb', { action: 'x', ts: '1' });
     expect(a).not.toBe(b);
+  });
+});
+
+describe('FR-53 audit retention sweep', () => {
+  afterAll(async () => {
+    await prisma.$disconnect();
+  });
+
+  test('deletes rows past retentionUntil', async () => {
+    await prisma.auditLog.create({
+      data: {
+        action: 'jest_retention_test',
+        actionType: 'Jest Retention Test',
+        resource: 'test',
+        resultStatus: 'success',
+        retentionUntil: new Date(Date.now() - 24 * 60 * 60 * 1000),
+      },
+    });
+    const deleted = await sweepExpiredAuditLogs();
+    expect(deleted).toBeGreaterThan(0);
   });
 });
