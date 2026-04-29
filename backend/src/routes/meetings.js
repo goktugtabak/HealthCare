@@ -17,9 +17,30 @@ const validate = (req, res, next) => {
 
 const MEETING_INCLUDE = {
   post: { select: { id: true, title: true, status: true, confidentiality: true, ownerRole: true, authorId: true } },
-  requestor: { select: { id: true, firstName: true, lastName: true, fullName: true, role: true, avatar: true } },
-  recipient: { select: { id: true, firstName: true, lastName: true, fullName: true, role: true, avatar: true } },
+  requestor: { select: { id: true, email: true, firstName: true, lastName: true, fullName: true, role: true, avatar: true, institution: true, status: true } },
+  recipient: { select: { id: true, email: true, firstName: true, lastName: true, fullName: true, role: true, avatar: true, institution: true, status: true } },
   ndaAcceptance: true,
+};
+
+// M-04 (GDPR Art. 17): blank PII for users in pending_deletion when they
+// surface as requestor or recipient on a meeting payload. Mutates in place.
+const anonymiseMeetingParticipants = (meeting) => {
+  if (!meeting) return meeting;
+  for (const key of ['requestor', 'recipient']) {
+    const u = meeting[key];
+    if (u && u.status === 'pending_deletion') {
+      meeting[key] = {
+        ...u,
+        fullName: 'Deleted user',
+        firstName: 'Deleted',
+        lastName: 'User',
+        institution: null,
+        avatar: null,
+        email: null,
+      };
+    }
+  }
+  return meeting;
 };
 
 const fullName = (u) => u?.fullName || [u?.firstName, u?.lastName].filter(Boolean).join(' ') || u?.email || '';
@@ -33,6 +54,7 @@ router.get('/', authenticate, async (req, res, next) => {
       include: MEETING_INCLUDE,
       orderBy: { createdAt: 'desc' },
     });
+    meetings.forEach(anonymiseMeetingParticipants);
     res.json({ meetings });
   } catch (err) {
     next(err);
@@ -49,6 +71,7 @@ router.get('/:id', authenticate, [safeId('id')], validate, async (req, res, next
     if (meeting.requestorId !== req.user.id && meeting.recipientId !== req.user.id && req.user.role !== 'admin') {
       return res.status(403).json({ error: 'Forbidden' });
     }
+    if (req.user.role !== 'admin') anonymiseMeetingParticipants(meeting);
     res.json(meeting);
   } catch (err) {
     next(err);

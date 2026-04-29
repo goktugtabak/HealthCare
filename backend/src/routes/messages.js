@@ -6,6 +6,25 @@ const writeLimit = require('../middleware/writeLimit');
 const { recordAuditLog } = require('../services/audit');
 const { safeId } = require('../middleware/sanitizers');
 
+// M-04 (GDPR Art. 17): blank PII for users in pending_deletion when they
+// surface as sender or recipient on a message payload. Mutates in place.
+const anonymiseMessageParticipants = (message) => {
+  if (!message) return message;
+  for (const key of ['sender', 'recipient']) {
+    const u = message[key];
+    if (u && u.status === 'pending_deletion') {
+      message[key] = {
+        ...u,
+        fullName: 'Deleted user',
+        firstName: 'Deleted',
+        lastName: 'User',
+        email: null,
+      };
+    }
+  }
+  return message;
+};
+
 const router = express.Router();
 
 const validate = (req, res, next) => {
@@ -23,11 +42,12 @@ router.get('/', authenticate, async (req, res, next) => {
       },
       include: {
         post: { select: { id: true, title: true, confidentiality: true } },
-        sender: { select: { id: true, firstName: true, lastName: true, role: true } },
-        recipient: { select: { id: true, firstName: true, lastName: true, role: true } },
+        sender: { select: { id: true, firstName: true, lastName: true, fullName: true, role: true, email: true, status: true } },
+        recipient: { select: { id: true, firstName: true, lastName: true, fullName: true, role: true, email: true, status: true } },
       },
       orderBy: { createdAt: 'desc' },
     });
+    messages.forEach(anonymiseMessageParticipants);
     res.json({ messages });
   } catch (err) {
     next(err);
@@ -51,7 +71,9 @@ router.get(
             { senderId: userId, recipientId: req.user.id },
           ],
         },
-        include: { sender: { select: { id: true, firstName: true, lastName: true } } },
+        include: {
+          sender: { select: { id: true, firstName: true, lastName: true, fullName: true, email: true, status: true } },
+        },
         orderBy: { createdAt: 'asc' },
       });
 
@@ -60,6 +82,7 @@ router.get(
         data: { isRead: true, readAt: new Date() },
       });
 
+      messages.forEach(anonymiseMessageParticipants);
       res.json({ messages });
     } catch (err) {
       next(err);
@@ -125,10 +148,11 @@ router.post(
       const message = await prisma.message.create({
         data: { postId, senderId: req.user.id, recipientId, content, meetingRequestId: meetingRequestId || null },
         include: {
-          sender: { select: { id: true, firstName: true, lastName: true } },
-          recipient: { select: { id: true, firstName: true, lastName: true, email: true } },
+          sender: { select: { id: true, firstName: true, lastName: true, fullName: true, status: true } },
+          recipient: { select: { id: true, firstName: true, lastName: true, fullName: true, email: true, status: true } },
         },
       });
+      anonymiseMessageParticipants(message);
 
       await prisma.notification.create({
         data: {

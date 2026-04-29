@@ -34,9 +34,12 @@ router.get(
     const { page = 1, limit = 50, role, status, search, includePendingDeletion } = req.query;
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
+    const includePending = includePendingDeletion === 'true' || includePendingDeletion === true;
     const where = {
       ...(role && { role }),
-      ...(status && { status }),
+      ...(status
+        ? { status }
+        : !includePending && { status: { not: 'pending_deletion' } }),
       ...(search && {
         OR: [
           { email: { contains: search, mode: 'insensitive' } },

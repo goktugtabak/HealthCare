@@ -5,18 +5,42 @@ const POST_INCLUDE = {
   author: {
     select: {
       id: true,
+      email: true,
       firstName: true,
       lastName: true,
       fullName: true,
       role: true,
       institution: true,
+      bio: true,
       city: true,
       country: true,
       avatar: true,
+      status: true,
     },
   },
   statusHistory: { orderBy: { changedAt: 'desc' } },
   _count: { select: { messages: true, meetingRequests: true } },
+};
+
+// M-04 (GDPR Art. 17): once a user has requested deletion, their PII must be
+// hidden from non-admin reads even before the 72h hard-delete completes.
+// Mutates the post in place and returns it for chaining.
+const anonymisePendingDeletionAuthor = (post) => {
+  if (post && post.author && post.author.status === 'pending_deletion') {
+    post.author = {
+      ...post.author,
+      fullName: 'Deleted user',
+      firstName: 'Deleted',
+      lastName: 'User',
+      institution: null,
+      bio: null,
+      city: null,
+      country: null,
+      avatar: null,
+      email: null,
+    };
+  }
+  return post;
 };
 
 // H-01 (FR-10): non-public posts are only readable by the owner, an admin,
@@ -103,6 +127,7 @@ const listPosts = async ({
     prisma.post.count({ where }),
   ]);
 
+  posts.forEach(anonymisePendingDeletionAuthor);
   return { posts, total, page, pages: Math.ceil(total / limit) };
 };
 
@@ -131,7 +156,7 @@ const getPost = async (id, userId, role) => {
   // for the access check and exposes counterpart user IDs / NDA timestamps.
   // eslint-disable-next-line no-unused-vars
   const { meetingRequests, ...safe } = post;
-  return safe;
+  return anonymisePendingDeletionAuthor(safe);
 };
 
 const buildCreateData = (authorId, ownerRole, body) => ({
@@ -356,4 +381,5 @@ module.exports = {
   deletePost,
   markClosed,
   expireDuePosts,
+  anonymisePendingDeletionAuthor,
 };
