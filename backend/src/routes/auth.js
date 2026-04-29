@@ -29,16 +29,16 @@ router.post(
   [
     body('email').isEmail().normalizeEmail().withMessage('Valid email required'),
     body('password').isLength({ min: 8 }).withMessage('Password must be at least 8 characters'),
-    body('firstName').trim().notEmpty().withMessage('First name required'),
-    body('lastName').trim().notEmpty().withMessage('Last name required'),
+    body('firstName').trim().notEmpty().isLength({ max: 100 }).matches(/^[^\x00]*$/).withMessage('First name required'),
+    body('lastName').trim().notEmpty().isLength({ max: 100 }).matches(/^[^\x00]*$/).withMessage('Last name required'),
     body('role')
       .optional()
       .isIn(['engineer', 'healthcare'])
       .withMessage('Role must be engineer or healthcare'),
     body('honeypot').optional().isEmpty(),
-    body('institution').optional().isString().trim(),
-    body('city').optional().isString().trim(),
-    body('country').optional().isString().trim(),
+    body('institution').optional().isString().trim().isLength({ max: 200 }).matches(/^[^\x00]*$/),
+    body('city').optional().isString().trim().isLength({ max: 100 }).matches(/^[^\x00]*$/),
+    body('country').optional().isString().trim().isLength({ max: 100 }).matches(/^[^\x00]*$/),
   ],
   validate,
   async (req, res, next) => {

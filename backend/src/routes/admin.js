@@ -3,6 +3,7 @@ const { body, param, query, validationResult } = require('express-validator');
 const prisma = require('../lib/prisma');
 const { authenticate, requireRole } = require('../middleware/auth');
 const { recordAuditLog, verifyAuditChain } = require('../services/audit');
+const { safeId, safeQueryString } = require('../middleware/sanitizers');
 
 const router = express.Router();
 
@@ -17,9 +18,20 @@ const validate = (req, res, next) => {
 const adminFullName = (u) =>
   u?.fullName || [u?.firstName, u?.lastName].filter(Boolean).join(' ') || u?.email || 'Admin';
 
-router.get('/users', async (req, res, next) => {
+router.get(
+  '/users',
+  [
+    query('page').optional().isInt({ min: 1 }),
+    query('limit').optional().isInt({ min: 1, max: 200 }),
+    query('role').optional().isIn(['engineer', 'healthcare', 'admin']),
+    query('status').optional().isIn(['active', 'suspended', 'deactivated', 'pending_deletion']),
+    safeQueryString('search', 200),
+    query('includePendingDeletion').optional().isBoolean(),
+  ],
+  validate,
+  async (req, res, next) => {
   try {
-    const { page = 1, limit = 50, role, status, search } = req.query;
+    const { page = 1, limit = 50, role, status, search, includePendingDeletion } = req.query;
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
     const where = {
@@ -70,7 +82,7 @@ router.get('/users', async (req, res, next) => {
   }
 });
 
-router.get('/users/:id/metrics', [param('id').isString().trim().notEmpty()], validate, async (req, res, next) => {
+router.get('/users/:id/metrics', [safeId('id')], validate, async (req, res, next) => {
   try {
     const id = req.params.id;
     const [user, posts, sent, received, accepted, declined, messages, logs] = await Promise.all([
@@ -104,7 +116,17 @@ router.get('/users/:id/metrics', [param('id').isString().trim().notEmpty()], val
   }
 });
 
-router.get('/posts', async (req, res, next) => {
+router.get(
+  '/posts',
+  [
+    query('page').optional().isInt({ min: 1 }),
+    query('limit').optional().isInt({ min: 1, max: 200 }),
+    query('status').optional().isString().trim().isLength({ max: 32 }).matches(/^[a-zA-Z_]+$/),
+    safeQueryString('city', 100),
+    safeQueryString('domain', 200),
+  ],
+  validate,
+  async (req, res, next) => {
   try {
     const { page = 1, limit = 50, status, city, domain } = req.query;
     const skip = (parseInt(page) - 1) * parseInt(limit);
@@ -138,7 +160,7 @@ router.get('/posts', async (req, res, next) => {
   }
 });
 
-router.delete('/posts/:id', [param('id').isString().trim().notEmpty()], validate, async (req, res, next) => {
+router.delete('/posts/:id', [safeId('id')], validate, async (req, res, next) => {
   try {
     const post = await prisma.post.findUnique({ where: { id: req.params.id } });
     if (!post) return res.status(404).json({ error: 'Post not found' });
@@ -229,24 +251,24 @@ const setUserStatus = (action, actionType, status) =>
 
 router.post(
   '/users/:id/suspend',
-  [param('id').isString().trim().notEmpty()],
+  [safeId('id')],
   validate,
   setUserStatus('admin_user_suspend', 'User Suspended', 'suspended')
 );
 router.post(
   '/users/:id/reactivate',
-  [param('id').isString().trim().notEmpty()],
+  [safeId('id')],
   validate,
   setUserStatus('admin_user_reactivate', 'User Reactivated', 'active')
 );
 router.post(
   '/users/:id/deactivate',
-  [param('id').isString().trim().notEmpty()],
+  [safeId('id')],
   validate,
   setUserStatus('admin_user_deactivate', 'User Deactivated', 'deactivated')
 );
 
-router.post('/users/:id/verify-domain', [param('id').isString().trim().notEmpty()], validate, async (req, res, next) => {
+router.post('/users/:id/verify-domain', [safeId('id')], validate, async (req, res, next) => {
   try {
     const user = await prisma.user.findUnique({ where: { id: req.params.id } });
     if (!user) return res.status(404).json({ error: 'User not found' });
@@ -272,7 +294,7 @@ router.post('/users/:id/verify-domain', [param('id').isString().trim().notEmpty(
   }
 });
 
-router.post('/users/:id/hard-delete', [param('id').isString().trim().notEmpty()], validate, async (req, res, next) => {
+router.post('/users/:id/hard-delete', [safeId('id')], validate, async (req, res, next) => {
   try {
     const user = await prisma.user.findUnique({ where: { id: req.params.id } });
     if (!user) return res.status(404).json({ error: 'User not found' });
@@ -383,7 +405,7 @@ router.get(
     query('page').optional().isInt({ min: 1 }),
     query('limit').optional().isInt({ min: 1, max: 500 }),
     query('userId').optional().isUUID(),
-    query('action').optional().isString(),
+    safeQueryString('action', 100),
     query('from').optional().isISO8601(),
     query('to').optional().isISO8601(),
     query('result').optional().isIn(['success', 'failure', 'warning']),
@@ -423,7 +445,17 @@ router.get(
   }
 );
 
-router.get('/audit-logs/export', async (req, res, next) => {
+router.get(
+  '/audit-logs/export',
+  [
+    query('userId').optional().isUUID(),
+    safeQueryString('action', 100),
+    query('result').optional().isIn(['success', 'failure', 'warning']),
+    query('from').optional().isISO8601(),
+    query('to').optional().isISO8601(),
+  ],
+  validate,
+  async (req, res, next) => {
   try {
     const where = {};
     if (req.query.userId) where.userId = req.query.userId;

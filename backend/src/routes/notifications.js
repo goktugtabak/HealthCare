@@ -2,6 +2,7 @@ const express = require('express');
 const { param, validationResult } = require('express-validator');
 const prisma = require('../lib/prisma');
 const { authenticate } = require('../middleware/auth');
+const { safeId } = require('../middleware/sanitizers');
 
 const router = express.Router();
 
@@ -28,7 +29,7 @@ router.get('/', authenticate, async (req, res, next) => {
 router.post(
   '/:id/read',
   authenticate,
-  [param('id').isString().trim().notEmpty()],
+  [safeId('id')],
   validate,
   async (req, res, next) => {
     try {

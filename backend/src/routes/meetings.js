@@ -5,6 +5,7 @@ const { authenticate, requireVerified } = require('../middleware/auth');
 const writeLimit = require('../middleware/writeLimit');
 const { recordAuditLog } = require('../services/audit');
 const emailService = require('../services/email');
+const { safeId } = require('../middleware/sanitizers');
 
 const router = express.Router();
 
@@ -38,7 +39,7 @@ router.get('/', authenticate, async (req, res, next) => {
   }
 });
 
-router.get('/:id', authenticate, [param('id').isString().trim().notEmpty()], validate, async (req, res, next) => {
+router.get('/:id', authenticate, [safeId('id')], validate, async (req, res, next) => {
   try {
     const meeting = await prisma.meetingRequest.findUnique({
       where: { id: req.params.id },
@@ -60,13 +61,13 @@ router.post(
   writeLimit,
   requireVerified,
   [
-    body('postId').isString().trim().notEmpty(),
+    body('postId').isString().trim().notEmpty().isLength({ max: 64 }).matches(/^[a-zA-Z0-9_-]+$/),
     // FR-31: NDA acceptance is mandatory for ALL meeting requests,
     // not just confidential posts.
     body('ndaAccepted').isBoolean().custom((v) => v === true).withMessage('NDA acceptance is required'),
-    body('introductoryMessage').isString().trim().isLength({ min: 1, max: 2000 }),
+    body('introductoryMessage').isString().trim().isLength({ min: 1, max: 2000 }).matches(/^[^\x00]*$/),
     body('proposedSlots').optional().isArray(),
-    body('proposedSlots.*').optional().isString(),
+    body('proposedSlots.*').optional().isString().isISO8601(),
   ],
   validate,
   async (req, res, next) => {
@@ -145,7 +146,7 @@ router.post(
   authenticate,
   writeLimit,
   requireVerified,
-  [param('id').isString().trim().notEmpty(), body('selectedSlot').optional().isString()],
+  [safeId('id'), body('selectedSlot').optional().isString().isISO8601()],
   validate,
   async (req, res, next) => {
     try {
@@ -226,7 +227,7 @@ router.post(
   authenticate,
   writeLimit,
   requireVerified,
-  [param('id').isString().trim().notEmpty(), body('reason').optional().isString().trim().isLength({ max: 500 })],
+  [safeId('id'), body('reason').optional().isString().trim().isLength({ max: 500 })],
   validate,
   async (req, res, next) => {
     try {
@@ -289,7 +290,7 @@ router.post(
   authenticate,
   writeLimit,
   requireVerified,
-  [param('id').isString().trim().notEmpty()],
+  [safeId('id')],
   validate,
   async (req, res, next) => {
     try {

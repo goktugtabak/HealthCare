@@ -4,6 +4,7 @@ const prisma = require('../lib/prisma');
 const { authenticate, requireVerified } = require('../middleware/auth');
 const writeLimit = require('../middleware/writeLimit');
 const { recordAuditLog } = require('../services/audit');
+const { safeId } = require('../middleware/sanitizers');
 
 const router = express.Router();
 
@@ -36,7 +37,7 @@ router.get('/', authenticate, async (req, res, next) => {
 router.get(
   '/thread/:postId/:userId',
   authenticate,
-  [param('postId').isString().trim().notEmpty(), param('userId').isString().trim().notEmpty()],
+  [safeId('postId'), safeId('userId')],
   validate,
   async (req, res, next) => {
     try {
@@ -100,10 +101,10 @@ router.post(
   writeLimit,
   requireVerified,
   [
-    body('postId').isString().trim().notEmpty().withMessage('Valid post ID required'),
-    body('recipientId').isString().trim().notEmpty().withMessage('Valid recipient ID required'),
-    body('content').trim().isLength({ min: 1, max: 2000 }),
-    body('meetingRequestId').optional().isString().trim().notEmpty(),
+    body('postId').isString().trim().notEmpty().isLength({ max: 64 }).matches(/^[a-zA-Z0-9_-]+$/).withMessage('Valid post ID required'),
+    body('recipientId').isString().trim().notEmpty().isLength({ max: 64 }).matches(/^[a-zA-Z0-9_-]+$/).withMessage('Valid recipient ID required'),
+    body('content').trim().isLength({ min: 1, max: 2000 }).matches(/^[^\x00]*$/).withMessage('Invalid characters in message'),
+    body('meetingRequestId').optional().isString().trim().notEmpty().isLength({ max: 64 }).matches(/^[a-zA-Z0-9_-]+$/),
   ],
   validate,
   async (req, res, next) => {
@@ -162,7 +163,7 @@ router.post(
   '/:id/accept-nda',
   authenticate,
   requireVerified,
-  [param('id').isString().trim().notEmpty()],
+  [safeId('id')],
   validate,
   async (req, res, next) => {
     try {
