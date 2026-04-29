@@ -76,11 +76,14 @@ const ndaSatisfied = async ({ userId, postId, meetingRequestId }) => {
     });
     if (acc) return true;
   }
+  // H-07: declined / cancelled meetings should not satisfy the NDA gate
+  // even though they may have ndaAcceptedAt set from before the rejection.
   const meetingByPair = await prisma.meetingRequest.findFirst({
     where: {
       postId,
       OR: [{ requestorId: userId }, { recipientId: userId }],
       ndaAcceptedAt: { not: null },
+      status: { notIn: ['declined', 'cancelled'] },
     },
   });
   if (meetingByPair) return true;

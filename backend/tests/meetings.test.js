@@ -121,4 +121,33 @@ describe('Meeting workflow (FR-31, FR-33)', () => {
     expect(cancel.status).toBe(200);
     expect(cancel.body.status).toBe('cancelled');
   });
+
+  test('H-07: declined meeting does not satisfy NDA gate when posting a message', async () => {
+    // Use p6 (public, owned by u2 Mehmet) — no seed meeting between u3 and u2
+    // exists on p6, so the only NDA-relevant row will be the one we declined.
+    const elifToken = await login('elif.yilmaz@itu.edu.tr');
+    const seedMeeting = await prisma.meetingRequest.create({
+      data: {
+        postId: 'p6',
+        requestorId: 'u3',
+        recipientId: 'u2',
+        requesterRole: 'healthcare',
+        introductoryMessage: 'jest-test H-07 declined gate',
+        proposedSlots: ['2026-08-01T10:00:00Z'],
+        ndaAccepted: true,
+        ndaAcceptedAt: new Date(),
+        status: 'declined',
+      },
+    });
+    try {
+      const send = await request(app)
+        .post('/api/messages')
+        .set('Authorization', `Bearer ${elifToken}`)
+        .send({ postId: 'p6', recipientId: 'u2', content: 'jest-test H-07 message after decline' });
+      expect(send.status).toBe(403);
+      expect(send.body.requiresNda).toBe(true);
+    } finally {
+      await prisma.meetingRequest.delete({ where: { id: seedMeeting.id } }).catch(() => {});
+    }
+  });
 });
