@@ -19,21 +19,23 @@ services:
   backend:
     build: ./backend
     container_name: healthai-api
-    ports:
-      - "5001:5001"
+    expose:
+      - "5001"
     environment:
       NODE_ENV: production
       PORT: 5001
       DATABASE_URL: postgresql://healthai_user:healthai_password@db:5432/healthai_db
-      JWT_SECRET: ${JWT_SECRET:-change-this-secret-in-production-min-32-chars}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be exported (32+ chars). Generate one with: openssl rand -hex 48}
       JWT_EXPIRES_IN: 1h
       JWT_REFRESH_EXPIRES_IN: 7d
-      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:8080}
+      FRONTEND_URL: ${FRONTEND_URL:-https://localhost,http://localhost:8080}
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-587}
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASS: ${SMTP_PASS:-}
       EMAIL_FROM: ${EMAIL_FROM:-noreply@healthai.app}
+      ALLOW_UNVERIFIED: ${ALLOW_UNVERIFIED:-false}
+      DELETION_TTL_MS: ${DELETION_TTL_MS:-259200000}
     depends_on:
       db:
         condition: service_healthy
@@ -43,14 +45,32 @@ services:
     build:
       context: ./frontend
       args:
-        VITE_API_URL: ${VITE_API_URL:-http://localhost:5001/api}
+        VITE_API_URL: ${VITE_API_URL:-/api}
         VITE_APP_NAME: ${VITE_APP_NAME:-HEALTH AI}
-        VITE_USE_MOCK_DATA: ${VITE_USE_MOCK_DATA:-true}
+        VITE_USE_MOCK_DATA: ${VITE_USE_MOCK_DATA:-false}
     container_name: healthai-app
-    ports:
-      - "8080:80"
+    expose:
+      - "80"
     depends_on:
       - backend
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: healthai-caddy
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    environment:
+      DOMAIN: ${DOMAIN:-localhost}
+      ACME_EMAIL: ${ACME_EMAIL:-admin@healthai.local}
+    depends_on:
+      - backend
+      - frontend
     restart: unless-stopped
 
   frontend-dev:
@@ -66,7 +86,7 @@ services:
     environment:
       VITE_API_URL: ${VITE_API_URL:-http://localhost:5001/api}
       VITE_APP_NAME: ${VITE_APP_NAME:-HEALTH AI}
-      VITE_USE_MOCK_DATA: ${VITE_USE_MOCK_DATA:-true}
+      VITE_USE_MOCK_DATA: ${VITE_USE_MOCK_DATA:-false}
       CHOKIDAR_USEPOLLING: "true"
     profiles: ["dev"]
     restart: unless-stopped
@@ -74,3 +94,5 @@ services:
 volumes:
   postgres_data:
   frontend_node_modules:
+  caddy_data:
+  caddy_config:

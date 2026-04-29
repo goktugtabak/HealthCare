@@ -1,0 +1,43 @@
+# HEALTH AI Caddy reverse proxy.
+# - Auto-issues Let's Encrypt certificates when DOMAIN is set to a
+#   public hostname.
+# - Falls back to Caddy's internal CA for `localhost` / IP addresses
+#   (browser will warn; that's fine for class demos).
+{
+    email {$ACME_EMAIL:admin@healthai.local}
+    auto_https disable_redirects
+}
+
+{$DOMAIN:localhost} {
+    encode zstd gzip
+
+    # API → backend container
+    handle /api/* {
+        reverse_proxy backend:5001
+    }
+
+    # Health probe (uncomplicated)
+    handle /health {
+        reverse_proxy backend:5001
+    }
+
+    # Static SPA → frontend (nginx) container
+    handle {
+        reverse_proxy frontend:80
+    }
+
+    # Force HSTS at the edge.
+    header Strict-Transport-Security "max-age=31536000; includeSubDomains"
+    header X-Content-Type-Options "nosniff"
+    header Referrer-Policy "strict-origin-when-cross-origin"
+
+    log {
+        output stdout
+        format console
+    }
+}
+
+# Plain HTTP listener: redirect everything to HTTPS.
+:80 {
+    redir https://{host}{uri} permanent
+}
