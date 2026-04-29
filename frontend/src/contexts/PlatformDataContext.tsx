@@ -17,6 +17,16 @@ import type {
   PostStatusHistoryEntry,
   User,
 } from "@/data/types";
+import {
+  adminApi,
+  isMockMode,
+  meetingsApi,
+  notificationsApi,
+  postsApi,
+  usersApi,
+  getAccessToken,
+} from "@/api";
+import { sha256Hex } from "@/lib/hash";
 
 const STORAGE_KEY = "health-ai-platform-data";
 
@@ -39,7 +49,7 @@ interface CreatePostInput {
   publish: boolean;
 }
 
-interface UpdatePostInput extends Omit<CreatePostInput, "ownerId" | "ownerRole"> {}
+type UpdatePostInput = Omit<CreatePostInput, "ownerId" | "ownerRole">;
 
 interface SendMessageInput {
   postId: string;
@@ -82,7 +92,10 @@ interface PlatformDataContextType {
   messages: Message[];
   notifications: Notification[];
   activityLogs: ActivityLog[];
+  realModeReady: boolean;
+  refreshAll: () => Promise<void>;
   addUser: (user: User) => void;
+  upsertUser: (user: User) => void;
   updateUser: (userId: string, updates: Partial<User>) => void;
   suspendUser: (userId: string, actorId?: string) => void;
   reactivateUser: (userId: string, actorId?: string) => void;
@@ -91,11 +104,11 @@ interface PlatformDataContextType {
   requestAccountDeletion: (userId: string) => void;
   cancelAccountDeletion: (userId: string) => void;
   hardDeleteUser: (userId: string) => void;
-  createPost: (input: CreatePostInput) => Post;
+  createPost: (input: CreatePostInput) => Promise<Post> | Post;
   updatePost: (postId: string, updates: UpdatePostInput) => void;
   setPostStatus: (postId: string, status: PostStatus, actorId?: string, reason?: string) => void;
   removePost: (postId: string, actorId?: string) => void;
-  submitMeetingRequest: (input: SubmitMeetingRequestInput) => MeetingRequest;
+  submitMeetingRequest: (input: SubmitMeetingRequestInput) => Promise<MeetingRequest> | MeetingRequest;
   acceptMeetingRequest: (requestId: string, slot?: string) => void;
   declineMeetingRequest: (requestId: string) => void;
   sendMessage: (input: SendMessageInput) => Message;
@@ -105,7 +118,7 @@ interface PlatformDataContextType {
   getConversations: (currentUserId: string) => ConversationSummary[];
   markNotificationRead: (notificationId: string) => void;
   markAllNotificationsRead: (userId: string) => void;
-  addActivityLog: (input: AddActivityLogInput) => void;
+  addActivityLog: (input: AddActivityLogInput) => Promise<void> | void;
   getUserActivityMetrics: (userId: string) => UserActivityMetrics;
 }
 
@@ -127,7 +140,9 @@ interface PersistedState {
   activityLogs: ActivityLog[];
 }
 
-const defaultState: PersistedState = {
+const REAL_MODE = !isMockMode();
+
+const mockDefaultState: PersistedState = {
   users: mockUsers,
   posts: mockPosts,
   meetingRequests: mockMeetingRequests,
@@ -136,23 +151,24 @@ const defaultState: PersistedState = {
   activityLogs: mockActivityLogs,
 };
 
+const emptyState: PersistedState = {
+  users: [],
+  posts: [],
+  meetingRequests: [],
+  messages: [],
+  notifications: [],
+  activityLogs: [],
+};
+
+const defaultState: PersistedState = REAL_MODE ? emptyState : mockDefaultState;
+
 const PlatformDataContext = createContext<PlatformDataContextType | undefined>(undefined);
 
 const createId = (prefix: string) =>
   `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
-const simpleHash = (input: string) => {
-  let hash = 0;
-  for (let index = 0; index < input.length; index += 1) {
-    const char = input.charCodeAt(index);
-    hash = (hash << 5) - hash + char;
-    hash |= 0;
-  }
-  return (hash >>> 0).toString(16).padStart(8, "0");
-};
-
 const loadPersistedState = (): PersistedState => {
-  if (typeof window === "undefined") {
+  if (typeof window === "undefined" || REAL_MODE) {
     return defaultState;
   }
 
@@ -248,9 +264,11 @@ export const PlatformDataProvider = ({ children }: { children: React.ReactNode }
   const [activityLogs, setActivityLogs] = useState<ActivityLog[]>(
     persistedState.activityLogs,
   );
+  const [realModeReady, setRealModeReady] = useState<boolean>(!REAL_MODE);
 
-  // FR-15: Auto-expiry runtime check on mount
+  // Mock-mode only: FR-15 auto-expiry sweep on mount.
   useEffect(() => {
+    if (REAL_MODE) return;
     setPosts((current) => {
       let mutated = false;
       const next = current.map((post) => {
@@ -277,8 +295,9 @@ export const PlatformDataProvider = ({ children }: { children: React.ReactNode }
     });
   }, []);
 
-  // NFR-10: 72-hour hard-delete sweep for accounts pending deletion
+  // Mock-mode only: NFR-10 72-hour hard-delete sweep.
   useEffect(() => {
+    if (REAL_MODE) return;
     const usersToDelete = users.filter((user) => {
       if (user.status !== "pending_deletion" || !user.deletionRequestedAt) return false;
       const requestedAt = new Date(user.deletionRequestedAt).getTime();
@@ -292,7 +311,9 @@ export const PlatformDataProvider = ({ children }: { children: React.ReactNode }
     setPosts((current) => current.filter((post) => !usersToDelete.find((target) => target.id === post.ownerId)));
   }, [users]);
 
+  // Mock-mode only: persist to localStorage.
   useEffect(() => {
+    if (REAL_MODE) return;
     if (typeof window === "undefined") {
       return;
     }
@@ -309,21 +330,110 @@ export const PlatformDataProvider = ({ children }: { children: React.ReactNode }
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
   }, [activityLogs, meetingRequests, messages, notifications, posts, users]);
 
-  const addActivityLog = useCallback((input: AddActivityLogInput) => {
-    setActivityLogs((current) => {
-      const lastEntry = current[0];
-      const prevHash = lastEntry?.hash ?? "0".repeat(8);
-      const timestamp = new Date().toISOString();
-      const userName = input.userName ?? "system";
-      const role: User["role"] = input.role ?? "admin";
-      const payload = `${timestamp}|${userName}|${input.actionType}|${input.targetEntity}|${prevHash}`;
-      const hash = simpleHash(payload);
+  // Real-mode: fetch initial data on mount when authenticated.
+  const refreshAll = useCallback(async () => {
+    if (!REAL_MODE) return;
+    if (!getAccessToken()) {
+      setRealModeReady(true);
+      return;
+    }
+    try {
+      const [postList, meetingList, notifResult] = await Promise.allSettled([
+        postsApi.listPosts({ limit: 100 }),
+        meetingsApi.listMeetingRequests(),
+        notificationsApi.listNotifications(),
+      ]);
+      if (postList.status === "fulfilled") setPosts(postList.value);
+      if (meetingList.status === "fulfilled") setMeetingRequests(meetingList.value);
+      if (notifResult.status === "fulfilled") setNotifications(notifResult.value.notifications);
+
+      // Admin-only: fetch users + audit logs
+      try {
+        const usersResp = await adminApi.listUsers({ limit: 200 });
+        setUsers(usersResp.users);
+      } catch {
+        // not admin — ok
+      }
+      try {
+        const logResp = await adminApi.listAuditLogs({ limit: 200 });
+        const logs = (logResp.logs as Array<{
+          id: string;
+          createdAt: string;
+          userId?: string;
+          userName?: string;
+          role?: User["role"];
+          actionType?: string;
+          action?: string;
+          targetEntity?: string;
+          resultStatus?: ActivityLog["resultStatus"];
+          ipPreview?: string;
+          hash?: string;
+          prevHash?: string;
+        }>).map((log) => ({
+          id: log.id,
+          timestamp: log.createdAt,
+          userId: log.userId,
+          userName: log.userName ?? "system",
+          role: log.role ?? "admin",
+          actionType: log.actionType ?? log.action ?? "",
+          targetEntity: log.targetEntity ?? "",
+          resultStatus: log.resultStatus ?? "success",
+          ipPreview: log.ipPreview ?? "",
+          hash: log.hash,
+          prevHash: log.prevHash,
+        }));
+        setActivityLogs(logs as ActivityLog[]);
+      } catch {
+        // not admin — ok
+      }
+    } finally {
+      setRealModeReady(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!REAL_MODE) return;
+    refreshAll();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const addActivityLog = useCallback(
+    async (input: AddActivityLogInput) => {
+      if (REAL_MODE) {
+        // Backend records audit logs server-side. We just append a
+        // local optimistic entry so the UI stays responsive.
+        const ts = new Date().toISOString();
+        const lastEntry = activityLogs[0];
+        const prevHash = lastEntry?.hash ?? "";
+        const payload = `${ts}|${input.userName ?? ""}|${input.actionType}|${input.targetEntity}|${prevHash}`;
+        const hash = await sha256Hex(payload);
+        const entry: ActivityLog = {
+          id: createId("al"),
+          timestamp: ts,
+          userId: input.userId,
+          userName: input.userName ?? "system",
+          role: input.role ?? "admin",
+          actionType: input.actionType,
+          targetEntity: input.targetEntity,
+          resultStatus: input.resultStatus ?? "success",
+          ipPreview: fakeIp(),
+          hash,
+          prevHash,
+        };
+        setActivityLogs((current) => [entry, ...current]);
+        return;
+      }
+      const ts = new Date().toISOString();
+      const lastEntry = activityLogs[0];
+      const prevHash = lastEntry?.hash ?? "0".repeat(64);
+      const payload = `${ts}|${input.userName ?? ""}|${input.actionType}|${input.targetEntity}|${prevHash}`;
+      const hash = await sha256Hex(payload);
       const entry: ActivityLog = {
         id: createId("al"),
-        timestamp,
+        timestamp: ts,
         userId: input.userId,
-        userName,
-        role,
+        userName: input.userName ?? "system",
+        role: input.role ?? "admin",
         actionType: input.actionType,
         targetEntity: input.targetEntity,
         resultStatus: input.resultStatus ?? "success",
@@ -331,7 +441,18 @@ export const PlatformDataProvider = ({ children }: { children: React.ReactNode }
         hash,
         prevHash,
       };
-      return [entry, ...current];
+      setActivityLogs((current) => [entry, ...current]);
+    },
+    [activityLogs],
+  );
+
+  const upsertUser = useCallback((user: User) => {
+    setUsers((current) => {
+      const exists = current.find((u) => u.id === user.id);
+      if (exists) {
+        return current.map((u) => (u.id === user.id ? mergeUser(u, user) : u));
+      }
+      return [mergeUser(user, {}), ...current];
     });
   }, []);
 
@@ -353,6 +474,10 @@ export const PlatformDataProvider = ({ children }: { children: React.ReactNode }
   };
 
   const suspendUser = (userId: string, actorId?: string) => {
+    if (REAL_MODE) {
+      adminApi.suspendUser(userId).then(refreshAll).catch(() => {});
+      return;
+    }
     const target = users.find((user) => user.id === userId);
     setUsers((current) =>
       current.map((user) => (user.id === userId ? mergeUser(user, { status: "suspended" }) : user)),
@@ -371,6 +496,10 @@ export const PlatformDataProvider = ({ children }: { children: React.ReactNode }
   };
 
   const reactivateUser = (userId: string, actorId?: string) => {
+    if (REAL_MODE) {
+      adminApi.reactivateUser(userId).then(refreshAll).catch(() => {});
+      return;
+    }
     const target = users.find((user) => user.id === userId);
     setUsers((current) =>
       current.map((user) => (user.id === userId ? mergeUser(user, { status: "active" }) : user)),
@@ -388,6 +517,10 @@ export const PlatformDataProvider = ({ children }: { children: React.ReactNode }
   };
 
   const deactivateUser = (userId: string, actorId?: string) => {
+    if (REAL_MODE) {
+      adminApi.deactivateUser(userId).then(refreshAll).catch(() => {});
+      return;
+    }
     const target = users.find((user) => user.id === userId);
     setUsers((current) =>
       current.map((user) => (user.id === userId ? mergeUser(user, { status: "deactivated" }) : user)),
@@ -406,6 +539,10 @@ export const PlatformDataProvider = ({ children }: { children: React.ReactNode }
   };
 
   const verifyUserDomain = (userId: string, actorId?: string) => {
+    if (REAL_MODE) {
+      adminApi.verifyUserDomain(userId).then(refreshAll).catch(() => {});
+      return;
+    }
     const target = users.find((user) => user.id === userId);
     setUsers((current) =>
       current.map((user) => (user.id === userId ? mergeUser(user, { domainVerified: true, emailVerified: true }) : user)),
@@ -423,6 +560,10 @@ export const PlatformDataProvider = ({ children }: { children: React.ReactNode }
   };
 
   const requestAccountDeletion = (userId: string) => {
+    if (REAL_MODE) {
+      usersApi.requestAccountDeletion().then(refreshAll).catch(() => {});
+      return;
+    }
     const target = users.find((user) => user.id === userId);
     setUsers((current) =>
       current.map((user) =>
@@ -447,6 +588,10 @@ export const PlatformDataProvider = ({ children }: { children: React.ReactNode }
   };
 
   const cancelAccountDeletion = (userId: string) => {
+    if (REAL_MODE) {
+      usersApi.cancelAccountDeletion().then(refreshAll).catch(() => {});
+      return;
+    }
     setUsers((current) =>
       current.map((user) =>
         user.id === userId
@@ -457,6 +602,10 @@ export const PlatformDataProvider = ({ children }: { children: React.ReactNode }
   };
 
   const hardDeleteUser = (userId: string) => {
+    if (REAL_MODE) {
+      adminApi.hardDeleteUser(userId).then(refreshAll).catch(() => {});
+      return;
+    }
     const target = users.find((user) => user.id === userId);
     setUsers((current) => current.filter((user) => user.id !== userId));
     setPosts((current) => current.filter((post) => post.ownerId !== userId));
@@ -471,7 +620,31 @@ export const PlatformDataProvider = ({ children }: { children: React.ReactNode }
     }
   };
 
-  const createPost = (input: CreatePostInput) => {
+  const createPost = (input: CreatePostInput): Post | Promise<Post> => {
+    if (REAL_MODE) {
+      return postsApi
+        .createPost({
+          title: input.title,
+          workingDomain: input.workingDomain,
+          shortExplanation: input.shortExplanation,
+          requiredExpertise: input.requiredExpertise,
+          projectStage: input.projectStage,
+          collaborationType: input.collaborationType,
+          confidentialityLevel: input.confidentialityLevel,
+          country: input.country,
+          city: input.city,
+          expiryDate: input.expiryDate,
+          autoClose: input.autoClose,
+          commitmentLevel: input.commitmentLevel,
+          highLevelIdea: input.highLevelIdea,
+          publish: input.publish,
+        })
+        .then((post) => {
+          setPosts((current) => [post, ...current]);
+          return post;
+        });
+    }
+
     const now = new Date().toISOString();
     const status: PostStatus = input.publish ? "Active" : "Draft";
     const post: Post = {
@@ -515,6 +688,36 @@ export const PlatformDataProvider = ({ children }: { children: React.ReactNode }
   };
 
   const updatePost = (postId: string, updates: UpdatePostInput) => {
+    if (REAL_MODE) {
+      postsApi
+        .updatePost(postId, {
+          title: updates.title,
+          workingDomain: updates.workingDomain,
+          shortExplanation: updates.shortExplanation,
+          requiredExpertise: updates.requiredExpertise,
+          projectStage: updates.projectStage,
+          collaborationType: updates.collaborationType,
+          confidentialityLevel: updates.confidentialityLevel,
+          country: updates.country,
+          city: updates.city,
+          expiryDate: updates.expiryDate,
+          autoClose: updates.autoClose,
+          commitmentLevel: updates.commitmentLevel,
+          highLevelIdea: updates.highLevelIdea,
+          publish: updates.publish,
+        })
+        .then((updated) => {
+          setPosts((current) => current.map((p) => (p.id === postId ? updated : p)));
+          if (updates.publish) {
+            postsApi.setPostStatus(postId, "Active").then((p2) =>
+              setPosts((cur) => cur.map((p) => (p.id === postId ? p2 : p))),
+            ).catch(() => {});
+          }
+        })
+        .catch(() => {});
+      return;
+    }
+
     setPosts((currentPosts) =>
       currentPosts.map((post) => {
         if (post.id !== postId) return post;
@@ -567,6 +770,15 @@ export const PlatformDataProvider = ({ children }: { children: React.ReactNode }
     actorId?: string,
     reason?: string,
   ) => {
+    if (REAL_MODE) {
+      postsApi
+        .setPostStatus(postId, status, reason)
+        .then((updated) => {
+          setPosts((current) => current.map((p) => (p.id === postId ? updated : p)));
+        })
+        .catch(() => {});
+      return;
+    }
     let mutatedPost: Post | undefined;
     setPosts((currentPosts) =>
       currentPosts.map((post) => {
@@ -604,6 +816,19 @@ export const PlatformDataProvider = ({ children }: { children: React.ReactNode }
   };
 
   const removePost = (postId: string, actorId?: string) => {
+    if (REAL_MODE) {
+      const remover = users.find((u) => u.id === actorId);
+      const promise = remover?.role === "admin"
+        ? adminApi.adminRemovePost(postId, "Removed by admin")
+        : postsApi.deletePost(postId);
+      promise
+        .then(() => {
+          setPosts((current) => current.filter((p) => p.id !== postId));
+          setMeetingRequests((current) => current.filter((r) => r.postId !== postId));
+        })
+        .catch(() => {});
+      return;
+    }
     const target = posts.find((post) => post.id === postId);
     setPosts((current) => current.filter((post) => post.id !== postId));
     setMeetingRequests((current) => current.filter((request) => request.postId !== postId));
@@ -620,7 +845,21 @@ export const PlatformDataProvider = ({ children }: { children: React.ReactNode }
     }
   };
 
-  const submitMeetingRequest = (input: SubmitMeetingRequestInput) => {
+  const submitMeetingRequest = (input: SubmitMeetingRequestInput): MeetingRequest | Promise<MeetingRequest> => {
+    if (REAL_MODE) {
+      return meetingsApi
+        .createMeetingRequest({
+          postId: input.postId,
+          introductoryMessage: input.introductoryMessage,
+          ndaAccepted: input.ndaAccepted ?? true,
+          proposedSlots: input.proposedSlots ?? [],
+        })
+        .then((created) => {
+          setMeetingRequests((current) => [created, ...current]);
+          return created;
+        });
+    }
+
     const request: MeetingRequest = {
       id: createId("request"),
       postId: input.postId,
@@ -664,7 +903,6 @@ export const PlatformDataProvider = ({ children }: { children: React.ReactNode }
         targetEntity: post.title,
       });
 
-      // FR-38: mock email delivery when recipient opted in
       const owner = users.find((user) => user.id === post.ownerId);
       if (owner?.notificationPreferences.email) {
         addActivityLog({
@@ -681,6 +919,22 @@ export const PlatformDataProvider = ({ children }: { children: React.ReactNode }
   };
 
   const acceptMeetingRequest = (requestId: string, slot?: string) => {
+    if (REAL_MODE) {
+      meetingsApi
+        .acceptMeetingRequest(requestId, slot)
+        .then((updated) => {
+          setMeetingRequests((current) => current.map((r) => (r.id === requestId ? updated : r)));
+          if (slot) {
+            postsApi.getPost(updated.postId).then((p) =>
+              setPosts((cur) => cur.map((post) => (post.id === p.id ? p : post))),
+            ).catch(() => {});
+          }
+          notificationsApi.listNotifications().then((res) => setNotifications(res.notifications)).catch(() => {});
+        })
+        .catch(() => {});
+      return;
+    }
+
     const acceptedRequest = meetingRequests.find((request) => request.id === requestId);
     const relatedPost = posts.find((post) => post.id === acceptedRequest?.postId);
 
@@ -751,6 +1005,17 @@ export const PlatformDataProvider = ({ children }: { children: React.ReactNode }
   };
 
   const declineMeetingRequest = (requestId: string) => {
+    if (REAL_MODE) {
+      meetingsApi
+        .declineMeetingRequest(requestId)
+        .then((updated) => {
+          setMeetingRequests((current) => current.map((r) => (r.id === requestId ? updated : r)));
+          notificationsApi.listNotifications().then((res) => setNotifications(res.notifications)).catch(() => {});
+        })
+        .catch(() => {});
+      return;
+    }
+
     const declinedRequest = meetingRequests.find((request) => request.id === requestId);
     const relatedPost = posts.find((post) => post.id === declinedRequest?.postId);
 
@@ -975,6 +1240,9 @@ export const PlatformDataProvider = ({ children }: { children: React.ReactNode }
   }, [messages]);
 
   const markNotificationRead = (notificationId: string) => {
+    if (REAL_MODE) {
+      notificationsApi.markNotificationRead(notificationId).catch(() => {});
+    }
     setNotifications((currentNotifications) =>
       currentNotifications.map((notification) =>
         notification.id === notificationId
@@ -985,6 +1253,9 @@ export const PlatformDataProvider = ({ children }: { children: React.ReactNode }
   };
 
   const markAllNotificationsRead = (userId: string) => {
+    if (REAL_MODE) {
+      notificationsApi.markAllNotificationsRead().catch(() => {});
+    }
     setNotifications((currentNotifications) =>
       currentNotifications.map((notification) =>
         notification.userId === userId ? { ...notification, read: true } : notification,
@@ -1026,7 +1297,10 @@ export const PlatformDataProvider = ({ children }: { children: React.ReactNode }
         messages,
         notifications,
         activityLogs,
+        realModeReady,
+        refreshAll,
         addUser,
+        upsertUser,
         updateUser,
         suspendUser,
         reactivateUser,

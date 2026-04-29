@@ -175,7 +175,7 @@ export const PostCard = ({
               variant="ghost"
               size="sm"
               className="rounded-full"
-              onClick={() => navigate(`/posts/${post.id}/edit`)}
+              onClick={() => navigate(`/edit-post/${post.id}`)}
             >
               <Pencil className="mr-1 h-3.5 w-3.5" />
               Edit

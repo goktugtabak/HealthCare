@@ -17,3 +17,5 @@ export * as messagesApi from "./messages";
 export * as meetingsApi from "./meetings";
 export * as usersApi from "./users";
 export * as notificationsApi from "./notifications";
+export * as adminApi from "./admin";
+export * as transforms from "./transforms";

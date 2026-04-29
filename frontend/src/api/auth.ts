@@ -1,9 +1,11 @@
 import api, { clearAuthTokens, setAuthTokens } from "./client";
+import { normalizeUser } from "./transforms";
 import type { Role, User } from "@/data/types";
 
 export interface LoginPayload {
   email: string;
   password: string;
+  honeypot?: string;
 }
 
 export interface RegisterPayload {
@@ -11,6 +13,10 @@ export interface RegisterPayload {
   password: string;
   fullName: string;
   role: Exclude<Role, "admin">;
+  institution?: string;
+  city?: string;
+  country?: string;
+  honeypot?: string;
 }
 
 export interface AuthResponse {
@@ -19,13 +25,22 @@ export interface AuthResponse {
   refreshToken?: string;
 }
 
+const splitName = (fullName: string) => {
+  const parts = fullName.trim().split(/\s+/);
+  if (parts.length === 1) return { firstName: parts[0], lastName: "" };
+  return {
+    firstName: parts[0],
+    lastName: parts.slice(1).join(" "),
+  };
+};
+
 const normalizeAuthResponse = (data: {
-  user: User;
+  user: unknown;
   token?: string;
   accessToken?: string;
   refreshToken?: string;
 }): AuthResponse => ({
-  user: data.user,
+  user: normalizeUser(data.user as Parameters<typeof normalizeUser>[0]),
   accessToken: (data.accessToken ?? data.token) as string,
   refreshToken: data.refreshToken,
 });
@@ -37,23 +52,30 @@ export const login = async (payload: LoginPayload): Promise<AuthResponse> => {
   return auth;
 };
 
-export const register = async (payload: RegisterPayload): Promise<AuthResponse> => {
-  const { data } = await api.post("/auth/register", payload);
-  const auth = normalizeAuthResponse(data);
-  if (auth.accessToken) {
-    setAuthTokens(auth.accessToken, auth.refreshToken);
-  }
-  return auth;
+export const register = async (payload: RegisterPayload): Promise<{ user: User }> => {
+  const { firstName, lastName } = splitName(payload.fullName);
+  const { data } = await api.post("/auth/register", {
+    email: payload.email,
+    password: payload.password,
+    firstName,
+    lastName,
+    role: payload.role,
+    institution: payload.institution,
+    city: payload.city,
+    country: payload.country,
+    honeypot: payload.honeypot,
+  });
+  return { user: normalizeUser(data.user) };
 };
 
-export const verifyEmail = async (token: string): Promise<{ user: User }> => {
+export const verifyEmail = async (token: string): Promise<{ message: string }> => {
   const { data } = await api.post("/auth/verify-email", { token });
   return data;
 };
 
 export const fetchCurrentUser = async (): Promise<User> => {
   const { data } = await api.get("/auth/me");
-  return data.user ?? data;
+  return normalizeUser(data.user ?? data);
 };
 
 export const logout = async (): Promise<void> => {

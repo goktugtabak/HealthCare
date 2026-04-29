@@ -96,7 +96,7 @@ export const FeaturesBento = () => {
               <div className="max-w-lg">
                 <h3 className="text-3xl font-bold mb-3 tracking-tight">Zero Patient Data</h3>
                 <p className="text-muted-foreground text-lg font-light leading-relaxed">
-                  We facilitate the connection, not the data transfer. Ensuring 100% HIPAA and GDPR compliance for initial contact and ideation.
+                  We facilitate the connection, not the data transfer. GDPR + KVKK compliant for first-contact metadata only — no clinical or patient information ever leaves your institution.
                 </p>
               </div>
             </div>
