@@ -29,6 +29,12 @@ if (process.env.NODE_ENV === 'production') {
     console.error('FATAL: JWT_SECRET still uses a default placeholder. Generate a strong secret.');
     process.exit(1);
   }
+  // L-03: ALLOW_UNVERIFIED bypasses email verification and is for dev only.
+  // Refuse to boot if it leaks into a production deploy.
+  if (process.env.ALLOW_UNVERIFIED === 'true') {
+    console.error('FATAL: ALLOW_UNVERIFIED must not be true in production.');
+    process.exit(1);
+  }
 }
 
 const app = express();
