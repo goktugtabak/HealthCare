@@ -23,7 +23,11 @@ import AdminPostsPage from "./pages/AdminPostsPage";
 import AdminLogsPage from "./pages/AdminLogsPage";
 import AdminStatsPage from "./pages/AdminStatsPage";
 import OnboardingPage from "./pages/OnboardingPage";
+import VerifyEmailPage from "./pages/VerifyEmailPage";
+import PrivacyPolicyPage from "./pages/PrivacyPolicyPage";
+import TermsOfServicePage from "./pages/TermsOfServicePage";
 import NotFound from "./pages/NotFound";
+import { CookieConsent } from "@/components/CookieConsent";
 
 const queryClient = new QueryClient();
 
@@ -66,6 +70,9 @@ export const AppRoutes = () => (
     <Route path="/" element={<LandingPage />} />
     <Route path="/login" element={<LoginPage />} />
     <Route path="/register" element={<RegisterPage />} />
+    <Route path="/verify-email" element={<VerifyEmailPage />} />
+    <Route path="/privacy" element={<PrivacyPolicyPage />} />
+    <Route path="/terms" element={<TermsOfServicePage />} />
     <Route
       path="/onboarding"
       element={
@@ -200,6 +207,7 @@ const App = () => (
           <ChatDockProvider>
             <BrowserRouter>
               <AppRoutes />
+              <CookieConsent />
             </BrowserRouter>
           </ChatDockProvider>
         </AuthProvider>

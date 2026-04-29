@@ -238,7 +238,7 @@ export const Sidebar = ({
               <TooltipTrigger asChild>
                 <div className="cursor-pointer">
                   <Avatar className="h-9 w-9 border border-primary/10 shadow-sm transition-opacity hover:opacity-80">
-                    <AvatarImage src={currentUser.profilePictureUrl} />
+                    <AvatarImage src={currentUser.avatar || undefined} />
                     <AvatarFallback className="bg-primary/5 text-primary text-xs font-semibold">
                       {getInitials(currentUser.fullName)}
                     </AvatarFallback>
@@ -253,7 +253,7 @@ export const Sidebar = ({
           ) : (
             <div className="group flex items-center gap-3 rounded-xl p-2 transition-colors hover:bg-muted/60 cursor-pointer">
               <Avatar className="h-10 w-10 border border-primary/10 shadow-sm shrink-0">
-                <AvatarImage src={currentUser.profilePictureUrl} />
+                <AvatarImage src={currentUser.avatar || undefined} />
                 <AvatarFallback className="bg-primary/5 text-primary text-sm font-semibold">
                   {getInitials(currentUser.fullName)}
                 </AvatarFallback>

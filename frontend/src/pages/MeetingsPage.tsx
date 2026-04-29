@@ -18,6 +18,14 @@ import { RoleBadge } from "@/components/RoleBadge";
 import { EmptyState } from "@/components/SharedComponents";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { useAuth } from "@/contexts/AuthContext";
 import { useChatDock } from "@/contexts/ChatDockContext";
 import { usePlatformData } from "@/contexts/PlatformDataContext";
@@ -76,6 +84,8 @@ const MeetingsPage = () => {
     users,
   } = usePlatformData();
   const [filter, setFilter] = useState<StatusFilter>("all");
+  const [pendingAccept, setPendingAccept] = useState<MeetingRequest | null>(null);
+  const [chosenSlot, setChosenSlot] = useState<string | null>(null);
 
   const currentUserId = currentUser?.id;
 
@@ -228,11 +238,8 @@ const MeetingsPage = () => {
               size="sm"
               variant="outline"
               onClick={() => {
-                acceptMeetingRequest(request.id);
-                toast({
-                  title: "Request accepted",
-                  description: "Messaging is now available for both sides.",
-                });
+                setPendingAccept(request);
+                setChosenSlot(request.proposedSlots[0] ?? null);
               }}
             >
               <CheckCircle className="mr-1 h-3 w-3" />
@@ -477,6 +484,86 @@ const MeetingsPage = () => {
           )}
         </>
       )}
+
+      <Dialog
+        open={!!pendingAccept}
+        onOpenChange={(open) => {
+          if (!open) {
+            setPendingAccept(null);
+            setChosenSlot(null);
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Accept request and pick a slot</DialogTitle>
+            <DialogDescription>
+              Select one of the proposed times. The post status will move to "Meeting Scheduled"
+              and messaging will unlock.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2 py-2">
+            {pendingAccept?.proposedSlots.length ? (
+              pendingAccept.proposedSlots.map((slot) => (
+                <button
+                  key={slot}
+                  type="button"
+                  onClick={() => setChosenSlot(slot)}
+                  className={cn(
+                    "flex w-full items-center justify-between rounded-2xl border px-4 py-3 text-left text-sm transition-colors",
+                    chosenSlot === slot
+                      ? "border-primary bg-primary/10"
+                      : "border-border hover:bg-muted/40",
+                  )}
+                >
+                  <span className="flex items-center gap-2">
+                    <Calendar className="h-4 w-4" />
+                    {formatSlot(slot)}
+                  </span>
+                  {chosenSlot === slot && <CheckCircle className="h-4 w-4 text-primary" />}
+                </button>
+              ))
+            ) : (
+              <p className="rounded-2xl border border-dashed border-border bg-muted/30 px-4 py-3 text-xs text-muted-foreground">
+                The requester did not propose specific slots. Accepting without a slot keeps the
+                request "Accepted" — coordinate the time off-platform.
+              </p>
+            )}
+          </div>
+          <DialogFooter className="flex-col sm:flex-row sm:justify-between sm:gap-2">
+            <Button
+              variant="ghost"
+              onClick={() => {
+                if (!pendingAccept) return;
+                acceptMeetingRequest(pendingAccept.id);
+                toast({
+                  title: "Accepted without scheduling",
+                  description: "Coordinate a time off-platform; status remains Accepted.",
+                });
+                setPendingAccept(null);
+                setChosenSlot(null);
+              }}
+            >
+              Accept without slot
+            </Button>
+            <Button
+              disabled={!chosenSlot}
+              onClick={() => {
+                if (!pendingAccept || !chosenSlot) return;
+                acceptMeetingRequest(pendingAccept.id, chosenSlot);
+                toast({
+                  title: "Meeting scheduled",
+                  description: "Post moved to 'Meeting Scheduled' and messaging is now open.",
+                });
+                setPendingAccept(null);
+                setChosenSlot(null);
+              }}
+            >
+              Confirm slot
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </AppShell>
   );
 };

@@ -128,9 +128,11 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       portfolioSummary: "",
       portfolioLinks: [],
       preferredContact: { method: "Email", value: email },
-      notificationPreferences: { inApp: true, email: false },
+      notificationPreferences: { inApp: true, email: true },
       bio: "",
       createdAt: new Date().toISOString(),
+      emailVerified: false,
+      domainVerified: false,
     };
 
     addUser(user);

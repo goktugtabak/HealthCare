@@ -116,7 +116,7 @@ describe("app flows", () => {
       />,
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: /send request/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /continue to nda/i }));
 
     expect(
       screen.getByText(/please write a collaboration request message/i),

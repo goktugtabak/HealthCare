@@ -26,14 +26,25 @@ export interface User {
   interestTags: string[];
   profileCompleteness: number;
   avatar: string;
-  status: 'active' | 'suspended' | 'deactivated';
+  status: 'active' | 'suspended' | 'deactivated' | 'pending_deletion';
   onboardingCompleted: boolean;
+  emailVerified?: boolean;
+  domainVerified?: boolean;
   portfolioSummary?: string;
   portfolioLinks: string[];
   preferredContact?: PreferredContact;
   notificationPreferences: NotificationPreferences;
   bio?: string;
   createdAt: string;
+  deletionRequestedAt?: string | null;
+  lastActiveAt?: string;
+}
+
+export interface PostStatusHistoryEntry {
+  status: PostStatus;
+  changedAt: string;
+  changedBy?: string;
+  reason?: string;
 }
 
 export interface Post {
@@ -58,6 +69,7 @@ export interface Post {
   commitmentLevel: string;
   highLevelIdea: string;
   notesPreview: string;
+  statusHistory?: PostStatusHistoryEntry[];
 }
 
 export interface MeetingRequest {
@@ -67,6 +79,7 @@ export interface MeetingRequest {
   requesterRole: Role;
   introductoryMessage: string;
   ndaAccepted: boolean;
+  ndaAcceptedAt?: string | null;
   proposedSlots: string[];
   selectedSlot: string | null;
   status: MeetingRequestStatus;
@@ -97,10 +110,13 @@ export interface Notification {
 export interface ActivityLog {
   id: string;
   timestamp: string;
+  userId?: string;
   userName: string;
   role: Role;
   actionType: string;
   targetEntity: string;
   resultStatus: 'success' | 'failure' | 'warning';
   ipPreview: string;
+  hash?: string;
+  prevHash?: string;
 }

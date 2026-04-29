@@ -1,9 +1,13 @@
 import { AppShell } from '@/components/AppShell';
 import { StatsCard } from '@/components/SharedComponents';
-import { mockPosts, mockUsers, mockMeetingRequests, mockActivityLogs } from '@/data/mockData';
+import { usePlatformData } from '@/contexts/PlatformDataContext';
 import { Users, FileText, Calendar, Activity } from 'lucide-react';
 
 const AdminDashboardPage = () => {
+  const { posts, users, meetingRequests, activityLogs } = usePlatformData();
+
+  const activeCount = posts.filter((post) => post.status === 'Active').length;
+
   return (
     <AppShell>
       <div className="animate-fade-in">
@@ -11,19 +15,22 @@ const AdminDashboardPage = () => {
         <p className="text-sm text-muted-foreground mb-8">Platform overview and management.</p>
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-          <StatsCard label="Total Users" value={mockUsers.length} icon={Users} trend="+2 this week" />
-          <StatsCard label="Total Posts" value={mockPosts.length} icon={FileText} trend="3 active" />
-          <StatsCard label="Meeting Requests" value={mockMeetingRequests.length} icon={Calendar} />
-          <StatsCard label="Activity Logs" value={mockActivityLogs.length} icon={Activity} />
+          <StatsCard label="Total Users" value={users.length} icon={Users} />
+          <StatsCard label="Total Posts" value={posts.length} icon={FileText} trend={`${activeCount} active`} />
+          <StatsCard label="Meeting Requests" value={meetingRequests.length} icon={Calendar} />
+          <StatsCard label="Activity Logs" value={activityLogs.length} icon={Activity} />
         </div>
 
         <div className="grid md:grid-cols-2 gap-6">
           <div className="rounded-lg border border-border bg-card p-5">
             <h3 className="text-base font-semibold mb-3">Posts by Status</h3>
-            {['Active', 'Draft', 'Meeting Scheduled', 'Partner Found', 'Expired'].map(status => {
-              const count = mockPosts.filter(p => p.status === status).length;
+            {['Active', 'Draft', 'Meeting Scheduled', 'Partner Found', 'Expired'].map((status) => {
+              const count = posts.filter((post) => post.status === status).length;
               return (
-                <div key={status} className="flex items-center justify-between py-2 border-b border-border last:border-0">
+                <div
+                  key={status}
+                  className="flex items-center justify-between py-2 border-b border-border last:border-0"
+                >
                   <span className="text-sm text-muted-foreground">{status}</span>
                   <span className="text-sm font-medium">{count}</span>
                 </div>
@@ -32,11 +39,16 @@ const AdminDashboardPage = () => {
           </div>
           <div className="rounded-lg border border-border bg-card p-5">
             <h3 className="text-base font-semibold mb-3">Users by Role</h3>
-            {['engineer', 'healthcare', 'admin'].map(role => {
-              const count = mockUsers.filter(u => u.role === role).length;
+            {['engineer', 'healthcare', 'admin'].map((role) => {
+              const count = users.filter((user) => user.role === role).length;
               return (
-                <div key={role} className="flex items-center justify-between py-2 border-b border-border last:border-0">
-                  <span className="text-sm text-muted-foreground capitalize">{role === 'healthcare' ? 'Healthcare Professional' : role}</span>
+                <div
+                  key={role}
+                  className="flex items-center justify-between py-2 border-b border-border last:border-0"
+                >
+                  <span className="text-sm text-muted-foreground capitalize">
+                    {role === 'healthcare' ? 'Healthcare Professional' : role}
+                  </span>
                   <span className="text-sm font-medium">{count}</span>
                 </div>
               );

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { AppShell } from "@/components/AppShell";
 import { PageHero } from "@/components/PageHero";
 import { Button } from "@/components/ui/button";
@@ -8,10 +9,11 @@ import { Label } from "@/components/ui/label";
 import { RoleBadge } from "@/components/RoleBadge";
 import { ConfirmationModal } from "@/components/ConfirmationModal";
 import { useAuth } from "@/contexts/AuthContext";
+import { usePlatformData } from "@/contexts/PlatformDataContext";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { domainOptions, expertiseOptions } from "@/data/mockData";
-import { Check, Download, Search, Trash2, UserCircle2, X } from "lucide-react";
+import { Check, Download, FileJson, Search, Trash2, UserCircle2, X } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -23,8 +25,25 @@ import { Checkbox } from "@/components/ui/checkbox";
 
 const contactMethods = ["Email", "Phone", "LinkedIn", "Other"] as const;
 
+const csvEscape = (value: unknown) => {
+  const stringValue = value == null ? "" : String(value);
+  if (/[",\n]/.test(stringValue)) {
+    return `"${stringValue.replace(/"/g, '""')}"`;
+  }
+  return stringValue;
+};
+
 const ProfilePage = () => {
-  const { currentUser, updateCurrentUserProfile } = useAuth();
+  const navigate = useNavigate();
+  const { currentUser, updateCurrentUserProfile, logout } = useAuth();
+  const {
+    posts,
+    meetingRequests,
+    messages,
+    notifications,
+    activityLogs,
+    requestAccountDeletion,
+  } = usePlatformData();
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const [tagSearch, setTagSearch] = useState("");
@@ -41,7 +60,7 @@ const ProfilePage = () => {
     preferredContactMethod: currentUser?.preferredContact?.method ?? "Email",
     preferredContactValue: currentUser?.preferredContact?.value ?? currentUser?.email ?? "",
     inAppNotifications: currentUser?.notificationPreferences.inApp ?? true,
-    emailNotifications: currentUser?.notificationPreferences.email ?? false,
+    emailNotifications: currentUser?.notificationPreferences.email ?? true,
   });
 
   useEffect(() => {
@@ -67,6 +86,95 @@ const ProfilePage = () => {
   }, [currentUser, editing]);
 
   if (!currentUser) return null;
+
+  const buildExportPayload = () => ({
+    profile: currentUser,
+    posts: posts.filter((post) => post.ownerId === currentUser.id),
+    meetingRequests: meetingRequests.filter(
+      (request) =>
+        request.requesterId === currentUser.id ||
+        posts.some((post) => post.id === request.postId && post.ownerId === currentUser.id),
+    ),
+    messages: messages.filter(
+      (message) => message.senderId === currentUser.id || message.recipientId === currentUser.id,
+    ),
+    notifications: notifications.filter((notification) => notification.userId === currentUser.id),
+    activityLogs: activityLogs.filter((log) => log.userId === currentUser.id),
+    exportedAt: new Date().toISOString(),
+  });
+
+  const triggerDownload = (filename: string, mime: string, content: string) => {
+    const blob = new Blob([content], { type: mime });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  const downloadJson = () => {
+    const payload = buildExportPayload();
+    triggerDownload(
+      `health-ai-export-${currentUser.id}-${new Date().toISOString().slice(0, 10)}.json`,
+      "application/json",
+      JSON.stringify(payload, null, 2),
+    );
+    toast({ title: "Data exported", description: "JSON download started." });
+  };
+
+  const downloadCsv = () => {
+    const payload = buildExportPayload();
+    const profileSection = [
+      "section,key,value",
+      ...Object.entries(payload.profile).map(
+        ([key, value]) =>
+          `profile,${csvEscape(key)},${csvEscape(
+            typeof value === "object" ? JSON.stringify(value) : value,
+          )}`,
+      ),
+    ];
+    const postSection = [
+      "section,id,title,status,created_at,expiry",
+      ...payload.posts.map(
+        (post) =>
+          `posts,${csvEscape(post.id)},${csvEscape(post.title)},${csvEscape(post.status)},${csvEscape(post.createdAt)},${csvEscape(post.expiryDate)}`,
+      ),
+    ];
+    const meetingSection = [
+      "section,id,post_id,status,nda_accepted,created_at",
+      ...payload.meetingRequests.map(
+        (request) =>
+          `meeting_requests,${csvEscape(request.id)},${csvEscape(request.postId)},${csvEscape(request.status)},${csvEscape(request.ndaAccepted)},${csvEscape(request.createdAt)}`,
+      ),
+    ];
+    const messageSection = [
+      "section,id,post_id,direction,created_at",
+      ...payload.messages.map(
+        (message) =>
+          `messages,${csvEscape(message.id)},${csvEscape(message.postId)},${csvEscape(
+            message.senderId === currentUser.id ? "out" : "in",
+          )},${csvEscape(message.createdAt)}`,
+      ),
+    ];
+    const csv = [
+      ...profileSection,
+      "",
+      ...postSection,
+      "",
+      ...meetingSection,
+      "",
+      ...messageSection,
+    ].join("\n");
+    triggerDownload(
+      `health-ai-export-${currentUser.id}-${new Date().toISOString().slice(0, 10)}.csv`,
+      "text/csv;charset=utf-8;",
+      csv,
+    );
+    toast({ title: "Data exported", description: "CSV download started." });
+  };
 
   const toggleTag = (value: string, key: "interestTags" | "expertiseTags") =>
     setForm((currentForm) => ({
@@ -517,22 +625,20 @@ const ProfilePage = () => {
           <h3 className="text-base font-semibold">Data and privacy</h3>
           <p className="text-sm text-muted-foreground">
             The platform keeps discovery and first contact lightweight. Detailed project exchange
-            and external follow-up remain outside the product.
+            and external follow-up remain outside the product. We comply with GDPR Article 15
+            (access) and Article 17 (erasure within 72 hours).
           </p>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() =>
-              toast({
-                title: "Data export started",
-                description: "Your data file will be ready shortly.",
-              })
-            }
-          >
-            <Download className="mr-1 h-4 w-4" />
-            Export My Data
-          </Button>
-          <div>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" size="sm" onClick={() => downloadJson()}>
+              <FileJson className="mr-1 h-4 w-4" />
+              Export as JSON
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => downloadCsv()}>
+              <Download className="mr-1 h-4 w-4" />
+              Export as CSV
+            </Button>
+          </div>
+          <div className="pt-2">
             <Button
               variant="ghost"
               size="sm"
@@ -550,15 +656,20 @@ const ProfilePage = () => {
         open={deleteModalOpen}
         onOpenChange={setDeleteModalOpen}
         title="Delete Account"
-        description="This action is irreversible. All your data, posts, and meeting history will be permanently deleted. Are you sure you want to proceed?"
+        description="This action schedules permanent deletion within 72 hours per GDPR Article 17. Your posts and meeting requests will be removed and you will be signed out. This cannot be undone."
         confirmLabel="Delete My Account"
         destructive
-        onConfirm={() =>
+        onConfirm={() => {
+          if (!currentUser) return;
+          requestAccountDeletion(currentUser.id);
           toast({
-            title: "Account deletion requested",
-            description: "Your request has been submitted. (Mock action)",
-          })
-        }
+            title: "Deletion scheduled",
+            description:
+              "Your account is queued for hard-deletion within 72 hours. You have been logged out.",
+          });
+          logout();
+          navigate("/");
+        }}
       />
     </AppShell>
   );

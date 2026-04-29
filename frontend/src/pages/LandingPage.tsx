@@ -1,4 +1,4 @@
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { Activity, Globe, Zap, Network, Lock, CheckCircle, ArrowUpRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -175,10 +175,10 @@ const LandingPage = () => {
             <div>
               <h4 className="font-semibold mb-4 text-foreground">Legal</h4>
               <ul className="space-y-3 text-sm text-muted-foreground/80 font-light">
-                <li><a href="#" className="hover:text-primary transition-colors">Privacy Policy</a></li>
-                <li><a href="#" className="hover:text-primary transition-colors">Terms of Service</a></li>
-                <li><a href="#" className="hover:text-primary transition-colors">Cookie Policy</a></li>
-                <li><a href="#" className="hover:text-primary transition-colors">Data Processing Addendum</a></li>
+                <li><Link to="/privacy" className="hover:text-primary transition-colors">Privacy Policy</Link></li>
+                <li><Link to="/terms" className="hover:text-primary transition-colors">Terms of Service</Link></li>
+                <li><Link to="/privacy" className="hover:text-primary transition-colors">Cookie Policy</Link></li>
+                <li><Link to="/privacy" className="hover:text-primary transition-colors">KVKK & GDPR</Link></li>
               </ul>
             </div>
           </div>

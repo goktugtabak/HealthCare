@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useNavigate } from "react-router-dom";
+import { useAuth } from "@/contexts/AuthContext";
 import { usePlatformData } from "@/contexts/PlatformDataContext";
 import { cn } from "@/lib/utils";
 import type { Post } from "@/data/types";
@@ -32,7 +33,14 @@ export const PostCard = ({
 }: PostCardProps) => {
   const navigate = useNavigate();
   const { users } = usePlatformData();
+  const { currentUser } = useAuth();
   const owner = users.find((user) => user.id === post.ownerId);
+  const sameCity =
+    !!currentUser &&
+    !ownerMode &&
+    !!post.city &&
+    !!currentUser.city &&
+    post.city.toLowerCase() === currentUser.city.toLowerCase();
 
   const totalTags = post.requiredExpertise.length + post.matchTags.length;
   const relevanceScore =
@@ -114,9 +122,15 @@ export const PostCard = ({
       </div>
 
       <div className="mb-4 flex flex-wrap gap-3 text-xs text-muted-foreground">
-        <span className="flex items-center gap-1">
+        <span
+          className={cn(
+            "flex items-center gap-1",
+            sameCity && "rounded-full bg-accent/10 px-2 py-0.5 font-semibold text-accent ring-1 ring-accent/30",
+          )}
+        >
           <MapPin className="h-3 w-3" />
           {post.city}, {post.country}
+          {sameCity && <span className="ml-1">· same city</span>}
         </span>
         <span className="flex items-center gap-1">
           <Calendar className="h-3 w-3" />

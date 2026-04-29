@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Separator } from "@/components/ui/separator";
+import { Captcha } from "@/components/Captcha";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "@/hooks/use-toast";
 import type { Role } from "@/data/types";
@@ -14,6 +15,9 @@ const LoginPage = () => {
   const { login, loginByEmail } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [captchaAnswer, setCaptchaAnswer] = useState("");
+  const [captchaVerified, setCaptchaVerified] = useState(false);
+  const [captchaError, setCaptchaError] = useState<string | undefined>();
 
   const handleLogin = (event: React.FormEvent) => {
     event.preventDefault();
@@ -25,6 +29,13 @@ const LoginPage = () => {
       });
       return;
     }
+
+    if (!captchaVerified) {
+      setCaptchaError("Solve the CAPTCHA to continue");
+      return;
+    }
+
+    setCaptchaError(undefined);
 
     const didLogin = loginByEmail(email);
 
@@ -99,6 +110,18 @@ const LoginPage = () => {
               Forgot password?
             </button>
           </div>
+
+          <Captcha
+            value={captchaAnswer}
+            onChange={(value) => {
+              setCaptchaAnswer(value);
+              if (captchaError) setCaptchaError(undefined);
+            }}
+            verified={captchaVerified}
+            onVerifiedChange={setCaptchaVerified}
+            error={captchaError}
+          />
+
           <Button type="submit" className="w-full">
             Log in
           </Button>

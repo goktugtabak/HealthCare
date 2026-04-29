@@ -11,6 +11,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Captcha } from "@/components/Captcha";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "@/hooks/use-toast";
 import { ShieldAlert } from "lucide-react";
@@ -49,6 +50,8 @@ const RegisterPage = () => {
     terms: false,
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [captchaAnswer, setCaptchaAnswer] = useState("");
+  const [captchaVerified, setCaptchaVerified] = useState(false);
 
   const emailLooksInstitutional = useMemo(() => {
     const domain = form.email.split("@")[1] ?? "";
@@ -75,6 +78,7 @@ const RegisterPage = () => {
 
     if (!form.role) nextErrors.role = "Please select a role";
     if (!form.terms) nextErrors.terms = "You must accept the terms";
+    if (!captchaVerified) nextErrors.captcha = "Solve the CAPTCHA to continue";
 
     setErrors(nextErrors);
     return Object.keys(nextErrors).length === 0;
@@ -96,10 +100,10 @@ const RegisterPage = () => {
     toast({
       title: "Account created",
       description:
-        "Complete your onboarding to unlock the role-specific dashboard experience.",
+        "Verify your email to continue. We just sent a confirmation link (mock).",
     });
 
-    navigate("/onboarding");
+    navigate("/verify-email");
   };
 
   return (
@@ -225,6 +229,23 @@ const RegisterPage = () => {
               {errors.terms && <p className="mt-2 text-xs text-destructive">{errors.terms}</p>}
             </div>
           </div>
+
+          <Captcha
+            value={captchaAnswer}
+            onChange={(value) => {
+              setCaptchaAnswer(value);
+              if (errors.captcha) {
+                setErrors((current) => {
+                  const next = { ...current };
+                  delete next.captcha;
+                  return next;
+                });
+              }
+            }}
+            verified={captchaVerified}
+            onVerifiedChange={setCaptchaVerified}
+            error={errors.captcha}
+          />
 
           <Button type="submit" className="w-full">
             Continue to onboarding
