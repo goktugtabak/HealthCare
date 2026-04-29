@@ -17,7 +17,7 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
-const SubtleScene = lazy(() => import("@/components/three/SubtleScene"));
+const DashboardScene = lazy(() => import("@/components/three/DashboardScene"));
 
 export interface NextBestAction {
   headline: string;
@@ -81,9 +81,8 @@ export const DashboardHero = ({
   return (
     <section className="relative overflow-hidden rounded-[28px] bg-gradient-to-br from-primary/[0.04] via-card/90 to-accent/[0.06] ring-1 ring-border/60">
       <Suspense fallback={null}>
-        <SubtleScene
-          intensity="minimal"
-          className="pointer-events-none absolute inset-0 -z-0 opacity-70"
+        <DashboardScene
+          className="pointer-events-none absolute inset-0 -z-0 opacity-100"
         />
       </Suspense>
       <div
