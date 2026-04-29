@@ -75,3 +75,34 @@ describe('POST /api/auth/register honeypot', () => {
     expect(res.status).toBe(400);
   });
 });
+
+describe('M-01 — refresh token rotation', () => {
+  afterAll(async () => {
+    await prisma.$disconnect();
+  });
+
+  test('the previous refresh token is rejected after a successful refresh', async () => {
+    // Login to obtain the initial refresh token.
+    const loginRes = await request(app)
+      .post('/api/auth/login')
+      .send({ email: 'mehmet.demir@metu.edu.tr', password: 'Demo123!' });
+    expect(loginRes.status).toBe(200);
+    const oldRefresh = loginRes.body.refreshToken;
+    expect(oldRefresh).toBeTruthy();
+
+    // First refresh succeeds and returns a new refresh token.
+    const firstRefresh = await request(app)
+      .post('/api/auth/refresh')
+      .send({ refreshToken: oldRefresh });
+    expect(firstRefresh.status).toBe(200);
+    expect(firstRefresh.body.accessToken).toBeTruthy();
+    expect(firstRefresh.body.refreshToken).toBeTruthy();
+    expect(firstRefresh.body.refreshToken).not.toBe(oldRefresh);
+
+    // Replaying the OLD refresh token must now be rejected.
+    const replay = await request(app)
+      .post('/api/auth/refresh')
+      .send({ refreshToken: oldRefresh });
+    expect(replay.status).toBe(401);
+  });
+});

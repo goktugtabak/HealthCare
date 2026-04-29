@@ -24,7 +24,10 @@ const signToken = (userId, role) =>
   });
 
 const signRefreshToken = (userId) =>
-  jwt.sign({ userId }, process.env.JWT_SECRET, {
+  // M-01: include a jti so two refresh tokens minted in the same second
+  // for the same user are still distinct strings — required for rotation
+  // (otherwise the new token equals the old one and the rotation is a no-op).
+  jwt.sign({ userId, jti: uuidv4() }, process.env.JWT_SECRET, {
     expiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '7d',
   });
 
@@ -243,8 +246,16 @@ const refreshAccessToken = async (refreshToken) => {
     throw err;
   }
 
+  // M-01: rotate the refresh token on every successful refresh. The old
+  // token is replaced in the user record, so a stolen-and-replayed token
+  // fails the second time it's presented.
   const accessToken = signToken(user.id, user.role);
-  return { accessToken };
+  const nextRefreshToken = signRefreshToken(user.id);
+  await prisma.user.update({
+    where: { id: user.id },
+    data: { refreshToken: nextRefreshToken },
+  });
+  return { accessToken, refreshToken: nextRefreshToken };
 };
 
 const logout = async (userId) => {
