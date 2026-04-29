@@ -5,6 +5,7 @@ const prisma = require('../lib/prisma');
 const emailService = require('./email');
 const { recordAuditLog } = require('./audit');
 const { sanitiseUserText } = require('../middleware/sanitizers');
+const { calculateProfileCompleteness } = require('./users');
 
 const SALT_ROUNDS = 10;
 // H-03: bcrypt the candidate password against this fixed dummy hash on the
@@ -67,19 +68,25 @@ const register = async ({
 
   const cleanFirst = sanitiseUserText(firstName);
   const cleanLast = sanitiseUserText(lastName);
+  const userRole = role || 'engineer';
+  const data = {
+    email,
+    passwordHash,
+    firstName: cleanFirst,
+    lastName: cleanLast,
+    fullName: sanitiseUserText(`${cleanFirst} ${cleanLast}`.trim()),
+    role: userRole,
+    institution: sanitiseUserText(institution || null),
+    city: city || null,
+    country: country || null,
+    verifyToken,
+  };
+  // FR-46: seed the profileCompleteness with the same formula admin views
+  // and the user's profile UI use. A bare-minimum registration scores 25
+  // (just the "has identity" baseline); fields filled in onboarding bump it.
+  data.profileCompleteness = calculateProfileCompleteness(data);
   const user = await prisma.user.create({
-    data: {
-      email,
-      passwordHash,
-      firstName: cleanFirst,
-      lastName: cleanLast,
-      fullName: sanitiseUserText(`${cleanFirst} ${cleanLast}`.trim()),
-      role: role || 'engineer',
-      institution: sanitiseUserText(institution || null),
-      city: city || null,
-      country: country || null,
-      verifyToken,
-    },
+    data,
     select: {
       id: true,
       email: true,

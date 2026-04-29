@@ -1,6 +1,7 @@
 /* eslint-disable */
 const { PrismaClient } = require('@prisma/client');
 const bcrypt = require('bcrypt');
+const { calculateProfileCompleteness } = require('../src/services/users');
 
 const prisma = new PrismaClient();
 
@@ -466,7 +467,7 @@ async function main() {
         preferredContactValue: u.preferredContactValue,
         notifyInApp: u.notifyInApp,
         notifyEmail: u.notifyEmail,
-        profileCompleteness: u.profileCompleteness,
+        profileCompleteness: calculateProfileCompleteness(u),
         onboardingCompleted: u.onboardingCompleted,
         emailVerified: u.emailVerified,
         domainVerified: u.domainVerified,
@@ -493,7 +494,7 @@ async function main() {
         notifyInApp: u.notifyInApp,
         notifyEmail: u.notifyEmail,
         status: 'active',
-        profileCompleteness: u.profileCompleteness,
+        profileCompleteness: calculateProfileCompleteness(u),
         onboardingCompleted: u.onboardingCompleted,
         emailVerified: u.emailVerified,
         domainVerified: u.domainVerified,

@@ -5,6 +5,7 @@ const { authenticate } = require('../middleware/auth');
 const { recordAuditLog } = require('../services/audit');
 const emailService = require('../services/email');
 const { sanitiseUserText } = require('../middleware/sanitizers');
+const { calculateProfileCompleteness } = require('../services/users');
 
 const USER_TEXT_FIELDS = new Set([
   'firstName',
@@ -123,12 +124,33 @@ router.patch(
         if (req.body[f] === undefined) continue;
         data[f] = USER_TEXT_FIELDS.has(f) ? sanitiseUserText(req.body[f]) : req.body[f];
       }
+      // FR-46: pull the existing record so we can (a) build fullName when only
+      // one of firstName/lastName changed and (b) recompute profileCompleteness
+      // from the merged shape rather than the partial diff.
+      const current = await prisma.user.findUnique({
+        where: { id: req.user.id },
+        select: {
+          firstName: true,
+          lastName: true,
+          role: true,
+          institution: true,
+          city: true,
+          country: true,
+          bio: true,
+          preferredContactValue: true,
+          expertiseTags: true,
+          interestTags: true,
+          portfolioSummary: true,
+          portfolioLinks: true,
+          onboardingCompleted: true,
+        },
+      });
       if (data.firstName || data.lastName) {
-        const merged = await prisma.user.findUnique({ where: { id: req.user.id }, select: { firstName: true, lastName: true } });
         data.fullName = sanitiseUserText(
-          `${data.firstName || merged.firstName} ${data.lastName || merged.lastName}`.trim()
+          `${data.firstName || current.firstName} ${data.lastName || current.lastName}`.trim()
         );
       }
+      data.profileCompleteness = calculateProfileCompleteness({ ...current, ...data });
 
       const updated = await prisma.user.update({
         where: { id: req.user.id },
