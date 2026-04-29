@@ -25,4 +25,10 @@ export default defineConfig(({ mode }) => ({
     // safari ≥15) all support top-level await natively.
     target: "es2022",
   },
+  esbuild: {
+    // P-03: strip console.* and debugger statements from production
+    // bundles only. Dev (`vite dev`) and vitest (mode === "test") keep
+    // them so debugging stays untouched.
+    drop: mode === "production" ? ["console", "debugger"] : [],
+  },
 }));
