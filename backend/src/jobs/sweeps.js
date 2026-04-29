@@ -25,6 +25,9 @@ const sweepDeletions = async () => {
         where: { OR: [{ senderId: u.id }, { recipientId: u.id }] },
         data: { deletedAt: new Date() },
       }),
+      // N6: same orphan-token risk as the admin hard-delete path — wipe
+      // sessions in the same transaction so anonymisation is total.
+      prisma.session.deleteMany({ where: { userId: u.id } }),
       prisma.user.update({
         where: { id: u.id },
         data: {
@@ -62,6 +65,26 @@ const sweepDeletions = async () => {
     logger.info(`Auto-purged user ${u.id} after deletion grace period.`);
   }
   return due.length;
+};
+
+// N6: drop sessions that are past expiry, plus revoked-and-aged-out rows.
+// 30-day grace on revoked sessions keeps audit trail useful for "where was
+// I logged in?" investigations without growing forever.
+const sweepExpiredSessions = async () => {
+  const now = new Date();
+  const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+  const result = await prisma.session.deleteMany({
+    where: {
+      OR: [
+        { expiresAt: { lt: now } },
+        { revokedAt: { lt: thirtyDaysAgo } },
+      ],
+    },
+  });
+  if (result.count > 0) {
+    logger.info(`Session sweep: deleted ${result.count} expired/revoked sessions.`);
+  }
+  return result.count;
 };
 
 // FR-53: every audit row is written with a retentionUntil 24 months out.
@@ -110,12 +133,23 @@ const start = () => {
     }
   });
 
+  // N6: daily 03:30 session sweep — staggered after the audit sweep so the
+  // two heavy delete passes don't run at the same time.
+  cron.schedule('30 3 * * *', async () => {
+    try {
+      await sweepExpiredSessions();
+    } catch (err) {
+      logger.error(`Session sweep failed: ${err.message}`);
+    }
+  });
+
   // Run once on boot so demo / restarts don't wait an hour
   expireDuePosts().catch((err) => logger.error(`Boot expire failed: ${err.message}`));
   sweepDeletions().catch((err) => logger.error(`Boot purge failed: ${err.message}`));
   sweepExpiredAuditLogs().catch((err) => logger.error(`Boot audit sweep failed: ${err.message}`));
+  sweepExpiredSessions().catch((err) => logger.error(`Boot session sweep failed: ${err.message}`));
 
-  logger.info('Cron sweeps scheduled (hourly auto-expire + hard-delete + daily audit retention).');
+  logger.info('Cron sweeps scheduled (hourly auto-expire + hard-delete + daily audit retention + daily session sweep).');
 };
 
-module.exports = { start, sweepDeletions, sweepExpiredAuditLogs };
+module.exports = { start, sweepDeletions, sweepExpiredAuditLogs, sweepExpiredSessions };

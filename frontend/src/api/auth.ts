@@ -1,4 +1,4 @@
-import api, { clearAuthTokens, setAuthTokens } from "./client";
+import api, { clearAuthTokens, getRefreshToken, setAuthTokens } from "./client";
 import { normalizeUser } from "./transforms";
 import type { Role, User } from "@/data/types";
 
@@ -79,8 +79,11 @@ export const fetchCurrentUser = async (): Promise<User> => {
 };
 
 export const logout = async (): Promise<void> => {
+  // N6: send the device's own refreshToken so the backend revokes only
+  // this Session row. Other devices' sessions stay alive.
+  const refreshToken = getRefreshToken();
   try {
-    await api.post("/auth/logout");
+    await api.post("/auth/logout", refreshToken ? { refreshToken } : {});
   } finally {
     clearAuthTokens();
   }

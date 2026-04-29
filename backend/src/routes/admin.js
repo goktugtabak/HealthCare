@@ -322,6 +322,10 @@ router.post('/users/:id/hard-delete', [safeId('id')], validate, async (req, res,
 
     await prisma.$transaction([
       prisma.message.updateMany({ where: { OR: [{ senderId: user.id }, { recipientId: user.id }] }, data: { deletedAt: new Date() } }),
+      // N6: hard-delete is a soft-anonymise on User, so onDelete:Cascade
+      // never fires. Wipe the user's Session rows in the same transaction
+      // so live refresh tokens can't outlive the anonymisation.
+      prisma.session.deleteMany({ where: { userId: user.id } }),
       prisma.user.update({
         where: { id: user.id },
         data: {

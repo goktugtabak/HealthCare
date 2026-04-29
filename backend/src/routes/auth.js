@@ -1,8 +1,10 @@
 const express = require('express');
-const { body, validationResult } = require('express-validator');
+const { body, param, validationResult } = require('express-validator');
 const authService = require('../services/auth');
 const { authenticate } = require('../middleware/auth');
 const { recordAuditLog } = require('../services/audit');
+const { safeId } = require('../middleware/sanitizers');
+const prisma = require('../lib/prisma');
 
 const router = express.Router();
 
@@ -104,7 +106,10 @@ router.post('/refresh', async (req, res, next) => {
   try {
     const { refreshToken } = req.body;
     if (!refreshToken) return res.status(400).json({ error: 'Refresh token required' });
-    const result = await authService.refreshAccessToken(refreshToken);
+    const result = await authService.refreshAccessToken(refreshToken, {
+      ip: req.ip,
+      userAgent: req.get('user-agent'),
+    });
     res.json(result);
   } catch (err) {
     next(err);
@@ -117,7 +122,7 @@ router.get('/me', authenticate, (req, res) => {
 
 router.post('/logout', authenticate, async (req, res, next) => {
   try {
-    await authService.logout(req.user.id);
+    await authService.logout(req.user.id, req.body?.refreshToken);
     await recordAuditLog({
       userId: req.user.id,
       userName: req.user.fullName,
@@ -135,5 +140,69 @@ router.post('/logout', authenticate, async (req, res, next) => {
     next(err);
   }
 });
+
+// N6: list active sessions for "your devices" UI. Refresh token is never
+// returned — listing endpoints must not be a way to harvest live tokens.
+router.get('/sessions', authenticate, async (req, res, next) => {
+  try {
+    const sessions = await prisma.session.findMany({
+      where: {
+        userId: req.user.id,
+        revokedAt: null,
+        expiresAt: { gt: new Date() },
+      },
+      orderBy: { lastUsedAt: 'desc' },
+      select: {
+        id: true,
+        device: true,
+        ipAddress: true,
+        createdAt: true,
+        lastUsedAt: true,
+        expiresAt: true,
+      },
+    });
+    res.json({ sessions });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// N6: revoke a single session. Must belong to req.user.id (404 hides
+// existence of other users' rows).
+router.delete(
+  '/sessions/:id',
+  authenticate,
+  [safeId('id')],
+  validate,
+  async (req, res, next) => {
+    try {
+      const session = await prisma.session.findUnique({
+        where: { id: req.params.id },
+      });
+      if (!session || session.userId !== req.user.id) {
+        return res.status(404).json({ error: 'Session not found' });
+      }
+      await prisma.session.update({
+        where: { id: session.id },
+        data: { revokedAt: new Date() },
+      });
+      await recordAuditLog({
+        userId: req.user.id,
+        userName: req.user.fullName,
+        role: req.user.role,
+        action: 'session_revoke',
+        actionType: 'Session Revoked',
+        resource: 'session',
+        resourceId: session.id,
+        targetEntity: session.device || session.ipAddress || 'session',
+        ip: req.ip,
+        userAgent: req.get('user-agent'),
+      });
+      res.json({ message: 'Session revoked' });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
 
 module.exports = router;

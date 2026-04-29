@@ -120,6 +120,7 @@ model User {
   avatar                 String?
   verifyToken            String?        @unique
   verifiedAt             DateTime?
+  /// @deprecated — use Session table; migration in progress (N6).
   refreshToken           String?
   deletionRequestedAt    DateTime?
   lastActiveAt           DateTime?
@@ -136,6 +137,7 @@ model User {
   auditLogs         AuditLog[]
   ndaAcceptances    NDAAcceptance[]
   postStatusChanges PostStatusHistory[]
+  sessions          Session[]
 
   @@index([role])
   @@index([status])
@@ -282,6 +284,29 @@ model Notification {
   @@index([userId, isRead])
   @@index([createdAt])
   @@map("notifications")
+}
+
+// N6: per-device session tokens. Replaces single-string User.refreshToken.
+// Logging in on a second device used to overwrite the first device's token —
+// silent logout after the first access token expired. Each device now owns
+// a Session row, rotates its refreshToken on every refresh, and revoke is
+// scoped to a single row (other devices stay alive).
+model Session {
+  id           String    @id @default(uuid())
+  userId       String
+  refreshToken String    @unique
+  device       String?
+  ipAddress    String?
+  createdAt    DateTime  @default(now())
+  lastUsedAt   DateTime  @updatedAt
+  expiresAt    DateTime
+  revokedAt    DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([refreshToken])
+  @@map("sessions")
 }
 
 model AuditLog {

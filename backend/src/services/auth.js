@@ -3,9 +3,38 @@ const jwt = require('jsonwebtoken');
 const { v4: uuidv4 } = require('uuid');
 const prisma = require('../lib/prisma');
 const emailService = require('./email');
-const { recordAuditLog } = require('./audit');
+const { recordAuditLog, ipPreview } = require('./audit');
 const { sanitiseUserText } = require('../middleware/sanitizers');
 const { calculateProfileCompleteness } = require('./users');
+
+// N6: refresh-token TTL must match the JWT refresh token's expiry so the
+// Session row and the signed token agree on when to stop being valid.
+const REFRESH_TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+// N6: parse a user-agent string into a short device label like "Chrome on
+// Windows". Cheap regex on the bits we care about — no ua-parser-js dep.
+const parseDevice = (userAgent) => {
+  if (!userAgent) return null;
+  const ua = String(userAgent);
+  let browser = 'Browser';
+  if (/Edg\//i.test(ua)) browser = 'Edge';
+  else if (/Chrome\//i.test(ua) && !/Chromium/i.test(ua)) browser = 'Chrome';
+  else if (/Firefox\//i.test(ua)) browser = 'Firefox';
+  else if (/Safari\//i.test(ua) && !/Chrome|Chromium/i.test(ua)) browser = 'Safari';
+  else if (/Opera|OPR\//i.test(ua)) browser = 'Opera';
+  else if (/PostmanRuntime/i.test(ua)) browser = 'Postman';
+  else if (/curl\//i.test(ua)) browser = 'curl';
+  else if (/node-fetch|axios|supertest|JestRunner/i.test(ua)) browser = 'Test runner';
+
+  let os = 'device';
+  if (/Windows NT/i.test(ua)) os = 'Windows';
+  else if (/Macintosh|Mac OS X/i.test(ua)) os = 'macOS';
+  else if (/iPhone|iPad|iOS/i.test(ua)) os = 'iOS';
+  else if (/Android/i.test(ua)) os = 'Android';
+  else if (/Linux/i.test(ua)) os = 'Linux';
+
+  return `${browser} on ${os}`;
+};
 
 const SALT_ROUNDS = 10;
 // H-03: bcrypt the candidate password against this fixed dummy hash on the
@@ -173,9 +202,22 @@ const login = async ({ email, password, ip, userAgent }) => {
   const accessToken = signToken(user.id, user.role);
   const refreshToken = signRefreshToken(user.id);
 
+  // N6: Session row replaces the single-string User.refreshToken. Each
+  // device gets its own row; rotation/revoke is per-row so other devices
+  // stay alive when one logs out.
+  await prisma.session.create({
+    data: {
+      userId: user.id,
+      refreshToken,
+      device: parseDevice(userAgent),
+      ipAddress: ipPreview(ip) || null,
+      expiresAt: new Date(Date.now() + REFRESH_TOKEN_TTL_MS),
+    },
+  });
+
   await prisma.user.update({
     where: { id: user.id },
-    data: { refreshToken, lastActiveAt: new Date() },
+    data: { lastActiveAt: new Date() },
   });
 
   await recordAuditLog({
@@ -237,7 +279,7 @@ const verifyEmail = async (token) => {
   return { message: 'Email verified successfully' };
 };
 
-const refreshAccessToken = async (refreshToken) => {
+const refreshAccessToken = async (refreshToken, { ip, userAgent } = {}) => {
   let payload;
   try {
     payload = jwt.verify(refreshToken, process.env.JWT_SECRET);
@@ -247,31 +289,57 @@ const refreshAccessToken = async (refreshToken) => {
     throw err;
   }
 
-  const user = await prisma.user.findUnique({
-    where: { id: payload.userId, refreshToken, deletedAt: null },
+  // N6: lookup by Session row instead of User.refreshToken. The session
+  // must be live (not revoked, not past expiry) and its user must not be
+  // soft-deleted.
+  const session = await prisma.session.findUnique({
+    where: { refreshToken },
+    include: { user: true },
   });
-  if (!user) {
+  if (
+    !session ||
+    session.revokedAt ||
+    session.expiresAt < new Date() ||
+    session.userId !== payload.userId ||
+    !session.user ||
+    session.user.deletedAt
+  ) {
     const err = new Error('Refresh token revoked');
     err.status = 401;
     throw err;
   }
 
-  // M-01: rotate the refresh token on every successful refresh. The old
-  // token is replaced in the user record, so a stolen-and-replayed token
-  // fails the second time it's presented.
-  const accessToken = signToken(user.id, user.role);
-  const nextRefreshToken = signRefreshToken(user.id);
-  await prisma.user.update({
-    where: { id: user.id },
-    data: { refreshToken: nextRefreshToken },
+  // M-01: rotate the refresh token on every successful refresh. With the
+  // Session table the rotation is scoped to this row only — other devices
+  // keep their tokens. The old token is replaced so a replay fails.
+  const accessToken = signToken(session.user.id, session.user.role);
+  const nextRefreshToken = signRefreshToken(session.user.id);
+  await prisma.session.update({
+    where: { id: session.id },
+    data: {
+      refreshToken: nextRefreshToken,
+      ipAddress: ipPreview(ip) || session.ipAddress,
+      device: parseDevice(userAgent) || session.device,
+    },
   });
   return { accessToken, refreshToken: nextRefreshToken };
 };
 
-const logout = async (userId) => {
-  await prisma.user.update({
-    where: { id: userId },
-    data: { refreshToken: null },
+const logout = async (userId, refreshToken) => {
+  // N6: revoke ONLY the device's own session — other devices stay alive.
+  // If the client didn't send a refreshToken in the body (older clients),
+  // fall back to revoking all of the user's active sessions to preserve
+  // the old "log everyone out" semantics rather than silently failing.
+  if (refreshToken) {
+    await prisma.session.updateMany({
+      where: { userId, refreshToken, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+    return;
+  }
+  await prisma.session.updateMany({
+    where: { userId, revokedAt: null },
+    data: { revokedAt: new Date() },
   });
 };
 
@@ -281,5 +349,6 @@ module.exports = {
   verifyEmail,
   refreshAccessToken,
   logout,
+  parseDevice,
   EDU_EMAIL_RE,
 };
