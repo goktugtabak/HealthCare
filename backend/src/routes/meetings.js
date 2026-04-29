@@ -66,7 +66,7 @@ router.post(
     // not just confidential posts.
     body('ndaAccepted').isBoolean().custom((v) => v === true).withMessage('NDA acceptance is required'),
     body('introductoryMessage').isString().trim().isLength({ min: 1, max: 2000 }).matches(/^[^\x00]*$/),
-    body('proposedSlots').optional().isArray(),
+    body('proposedSlots').optional().isArray({ min: 1, max: 5 }),
     body('proposedSlots.*').optional().isString().isISO8601(),
   ],
   validate,

@@ -65,3 +65,79 @@ describe('M-02 — input hardening (path traversal / null bytes / oversize)', ()
     if (res.status === 200) expect(res.body.id).toBe('p2');
   });
 });
+
+describe('M-05 — array length caps', () => {
+  let userToken;
+  let healthcareToken;
+
+  beforeAll(async () => {
+    userToken = await login('mehmet.demir@metu.edu.tr');
+    healthcareToken = await login('ayse.kaya@hacettepe.edu.tr');
+  });
+
+  afterAll(async () => {
+    await prisma.meetingRequest.deleteMany({ where: { introductoryMessage: { contains: 'jest-test M-05' } } });
+    await prisma.$disconnect();
+  });
+
+  test('PATCH /me with 100 expertise tags → 400', async () => {
+    const res = await request(app)
+      .patch('/api/users/me')
+      .set('Authorization', `Bearer ${userToken}`)
+      .send({ expertiseTags: Array(100).fill('x') });
+    expect(res.status).toBe(400);
+  });
+
+  test('PATCH /me with single 200-char tag → 400', async () => {
+    const res = await request(app)
+      .patch('/api/users/me')
+      .set('Authorization', `Bearer ${userToken}`)
+      .send({ expertiseTags: ['x'.repeat(200)] });
+    expect(res.status).toBe(400);
+  });
+
+  test('PATCH /me with 50 valid tags → 200', async () => {
+    const res = await request(app)
+      .patch('/api/users/me')
+      .set('Authorization', `Bearer ${userToken}`)
+      .send({ expertiseTags: Array(50).fill(0).map((_, i) => `tag${i}`) });
+    expect(res.status).toBe(200);
+  });
+
+  test('POST /api/posts with 50 requiredExpertise → 400', async () => {
+    const res = await request(app)
+      .post('/api/posts')
+      .set('Authorization', `Bearer ${healthcareToken}`)
+      .send({
+        title: 'M-05 array cap test post',
+        workingDomain: 'Cardiology',
+        shortExplanation: 'array cap test',
+        requiredExpertise: Array(50).fill('Machine Learning'),
+        projectStage: 'ideation',
+        confidentiality: 'public',
+        country: 'Turkey',
+        city: 'Ankara',
+      });
+    expect(res.status).toBe(400);
+  });
+
+  test('POST /api/meetings with 6 proposedSlots → 400', async () => {
+    const res = await request(app)
+      .post('/api/meetings')
+      .set('Authorization', `Bearer ${userToken}`)
+      .send({
+        postId: 'p3',
+        introductoryMessage: 'jest-test M-05 too many slots',
+        ndaAccepted: true,
+        proposedSlots: [
+          '2026-09-01T10:00:00Z',
+          '2026-09-02T10:00:00Z',
+          '2026-09-03T10:00:00Z',
+          '2026-09-04T10:00:00Z',
+          '2026-09-05T10:00:00Z',
+          '2026-09-06T10:00:00Z',
+        ],
+      });
+    expect(res.status).toBe(400);
+  });
+});
