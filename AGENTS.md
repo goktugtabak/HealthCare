@@ -4,64 +4,66 @@ This file provides guidance to Codex (Codex.ai/code) when working with code in t
 
 ## Project Overview
 
-**HEALTH AI** is a co-creation platform where engineers and healthcare professionals connect to form interdisciplinary partnerships. The repo contains a React/TypeScript frontend and a Node.js/Express backend, but they are currently **decoupled** — the frontend runs entirely on mock data by default.
+**HEALTH AI** is a co-creation platform where engineers and healthcare professionals connect to form interdisciplinary partnerships. The React/TypeScript frontend and Node.js/Express backend are **fully integrated** end to end. Real-mode is the default; `VITE_USE_MOCK_DATA=true` remains as an opt-in toggle for vitest fixtures and disconnected demos.
 
 ## Commands
 
 ### Frontend (`cd frontend`)
 ```bash
-npm run dev        # Dev server on port 8080
+npm run dev        # Dev server on port 8080 (real-mode by default)
 npm run build      # Production build
 npm run lint       # ESLint
 npm test           # Vitest (run once)
-npm run test:watch # Vitest watch mode
 ```
 
 ### Backend (`cd backend`)
 ```bash
-npm run dev            # nodemon dev server on port 5000
-npm test               # Jest unit tests
-npm run test:integration # Jest integration tests (requires DB)
-npm run db:migrate     # Prisma migrate dev
-npm run db:seed        # Seed database
-npm run db:studio      # Prisma Studio UI
+npm run dev              # nodemon dev server on port 5000
+npm test                 # Jest + Supertest (requires postgres on 5434)
+npm run test:unit        # Audit-chain unit tests only
+npm run db:migrate       # Prisma migrate dev
+npm run db:seed          # Seed 6 users / 8 posts / 3 meetings (Demo123!)
 ```
 
 ### Docker
 ```bash
-docker-compose up --build   # Start all services
-docker-compose logs -f backend
-docker-compose down
+cp .env.example .env  # Edit JWT_SECRET (openssl rand -hex 48)
+docker compose up --build
+docker compose exec backend npm run db:migrate
+docker compose exec backend npm run db:seed
 ```
+
+Caddy serves HTTPS at `https://localhost` (internal CA self-signed for local dev).
 
 ## Architecture
 
-### Frontend: Mock-first React SPA
+### Frontend: dual-mode SPA
 
-The frontend is a **TypeScript + React 18 + Vite** app. All state is in-memory/localStorage — no live backend calls when `VITE_USE_MOCK_DATA=true` (the default).
+`PlatformDataContext` (`frontend/src/contexts/PlatformDataContext.tsx`) is the single context — it switches between API-backed and mock-backed implementations based on `isMockMode()`. Real-mode fetches `/api/posts`, `/api/meetings`, `/api/notifications` (and admin-only `/api/admin/users` + audit logs) on mount and re-fetches after each mutation. Mock-mode preserves existing optimistic in-memory behavior so the 7 baseline vitest scenarios stay green.
 
-**Context layer** (`frontend/src/contexts/`):
-- `PlatformDataContext` — single source of truth for all entities (users, posts, messages, meetings, notifications). Seeded from `src/data/mockData.ts`, persisted to localStorage under `health-ai-platform-data`.
-- `AuthContext` — wraps `PlatformDataContext`; stores current user id in localStorage under `health-ai-current-user`. Login is by role or email lookup against mock users — no password check.
-- `ChatDockContext` — controls the floating chat dock visibility and active conversation.
+`AuthContext` real-mode: bootstraps current user from `/api/auth/me` when an access token is present. `loginWithCredentials({ email, password, honeypot })` hits `/api/auth/login`. Mock-mode keeps the role-based "Quick demo access" buttons (hidden in real-mode UI).
 
-**API layer** (`frontend/src/api/`): Axios client in `client.ts` with JWT bearer token injection and automatic 401 → token-refresh → retry logic. Each file (`auth.ts`, `posts.ts`, `messages.ts`, etc.) exports typed async functions. These are **currently unused** because the frontend reads from context instead; they exist for future backend integration.
+API layer (`frontend/src/api/`) is fully wired and uses `transforms.ts` to translate Title Case ↔ snake_case enums at the request/response boundary.
 
-**Routing** (`frontend/src/App.tsx`): React Router v6. `ProtectedRoute` enforces auth, onboarding completion, and admin role. Onboarding is required before accessing any authenticated route (except `/onboarding` itself).
+Audit log hash chain uses Web Crypto SHA-256 (`frontend/src/lib/hash.ts`), matching the backend's Node `crypto.createHash` chain.
 
-**UI stack**: shadcn/ui components (Radix UI primitives + Tailwind). Three.js scenes via `@react-three/fiber` are used on the landing page and as decorative elements. Path alias `@/` maps to `src/`.
+### Backend: Express + Prisma + node-cron
 
-**Key data types** (`frontend/src/data/types.ts`): `User`, `Post`, `MeetingRequest`, `Message`, `Notification`, `ActivityLog`. Roles: `engineer | healthcare | admin`.
-
-### Backend: Express + Prisma (not yet integrated with frontend)
-
-Node.js/Express with Prisma ORM and PostgreSQL. Uses CommonJS (`require`/`module.exports`). JWT auth, bcrypt passwords, Winston logging, express-rate-limit, helmet.
-
-Routes: `/api/auth`, `/api/posts`, `/api/messages`, `/api/admin`. The Prisma schema lives at `backend/prisma/schema.prisma`.
+- Schema aligned with frontend: Role `engineer | healthcare | admin`, ProjectStage 6-state, Confidentiality 3-level, MeetingStatus 6-state, UserStatus enum. New models `PostStatusHistory`, `NDAAcceptance`. AuditLog with hash + prevHash + retention.
+- Routes: `/api/auth`, `/api/posts`, `/api/messages`, `/api/meetings`, `/api/notifications`, `/api/users`, `/api/admin`.
+- Middleware: 30-min sliding inactivity timeout, RBAC, optional dev-bypass for verified-only routes.
+- Audit service: SHA-256 hash chain + `verifyAuditChain()`. CSV export streams with hash + prevHash columns.
+- Background sweeps via `node-cron`: hourly auto-expire (FR-15) + 72h hard-delete for pending_deletion accounts (NFR-10).
+- Security: helmet, auth-specific rate limit (NFR-07), honeypot rejection (NFR-08), production JWT_SECRET hard-fail.
 
 ## Mock vs Real Mode
 
-Set `VITE_USE_MOCK_DATA=false` in `frontend/.env` to enable real API calls. Check `isMockMode()` in `frontend/src/api/client.ts` — individual API modules use this flag to decide whether to return mock data or call the backend.
+Default is `VITE_USE_MOCK_DATA=false`. Set to `true` only for vitest, offline demo, or disconnected presentation.
+
+## Test layout
+
+- Frontend: 12 vitest tests (`app-flows` + `new-pages`).
+- Backend: 27 jest + supertest tests (auth, posts, meetings, admin, audit-chain). Requires postgres on 5434.
 
 ## MCP Tools: code-review-graph
 
