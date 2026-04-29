@@ -90,3 +90,100 @@ describe('Posts RBAC + status transitions', () => {
     expect(res.status).toBe(403);
   });
 });
+
+describe('H-01 / FR-10 — confidentiality enforcement on post reads', () => {
+  // Seed: p1 confidential (owner u1 Ayse healthcare), mr1 attaches u2 (Mehmet
+  // engineer) to p1 in pending status. We mutate mr1.status for the
+  // accepted-meeting case and restore it after.
+  let ayseToken; // u1 — owner of p1
+  let mehmetToken; // u2 — engineer with pending meeting on p1
+  let elifToken; // u3 — healthcare, no meeting on p1
+  let adminToken;
+  let originalMr1Status;
+
+  beforeAll(async () => {
+    const login = async (email) => {
+      const res = await request(app)
+        .post('/api/auth/login')
+        .send({ email, password: 'Demo123!' });
+      return res.body.accessToken;
+    };
+    ayseToken = await login('ayse.kaya@hacettepe.edu.tr');
+    mehmetToken = await login('mehmet.demir@metu.edu.tr');
+    elifToken = await login('elif.yilmaz@itu.edu.tr');
+    adminToken = await login('admin@healthai.edu.tr');
+    const mr = await prisma.meetingRequest.findUnique({ where: { id: 'mr1' } });
+    originalMr1Status = mr.status;
+  });
+
+  afterAll(async () => {
+    if (originalMr1Status) {
+      await prisma.meetingRequest.update({
+        where: { id: 'mr1' },
+        data: { status: originalMr1Status },
+      });
+    }
+    await prisma.$disconnect();
+  });
+
+  test('engineer without accepted meeting → 403 on confidential post', async () => {
+    // mr1 is in 'pending' (or whatever the seed left). Force it to a
+    // non-accepting state so this test is independent of seed ordering.
+    await prisma.meetingRequest.update({ where: { id: 'mr1' }, data: { status: 'pending' } });
+    const res = await request(app)
+      .get('/api/posts/p1')
+      .set('Authorization', `Bearer ${mehmetToken}`);
+    expect(res.status).toBe(403);
+    expect(res.body.error).toMatch(/confidential/i);
+  });
+
+  test('engineer with accepted MeetingRequest on confidential post → 200', async () => {
+    await prisma.meetingRequest.update({ where: { id: 'mr1' }, data: { status: 'accepted' } });
+    const res = await request(app)
+      .get('/api/posts/p1')
+      .set('Authorization', `Bearer ${mehmetToken}`);
+    expect(res.status).toBe(200);
+    expect(res.body.id).toBe('p1');
+  });
+
+  test('different healthcare user (no meeting) → 403 on confidential post', async () => {
+    const res = await request(app)
+      .get('/api/posts/p1')
+      .set('Authorization', `Bearer ${elifToken}`);
+    expect(res.status).toBe(403);
+  });
+
+  test('admin → 200 on any confidential post', async () => {
+    const res = await request(app)
+      .get('/api/posts/p1')
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(res.status).toBe(200);
+  });
+
+  test('owner → 200 on own confidential post', async () => {
+    const res = await request(app)
+      .get('/api/posts/p1')
+      .set('Authorization', `Bearer ${ayseToken}`);
+    expect(res.status).toBe(200);
+  });
+
+  test('public post is readable by any authenticated user', async () => {
+    // p2 is public. Have all four roles read it.
+    for (const tok of [ayseToken, mehmetToken, elifToken, adminToken]) {
+      const res = await request(app)
+        .get('/api/posts/p2')
+        .set('Authorization', `Bearer ${tok}`);
+      expect(res.status).toBe(200);
+    }
+  });
+
+  test('listPosts filters out non-public posts the engineer cannot see', async () => {
+    await prisma.meetingRequest.update({ where: { id: 'mr1' }, data: { status: 'pending' } });
+    const res = await request(app)
+      .get('/api/posts')
+      .set('Authorization', `Bearer ${elifToken}`);
+    expect(res.status).toBe(200);
+    const visibleIds = res.body.posts.map((p) => p.id);
+    expect(visibleIds).not.toContain('p1'); // p1 is confidential, elif has no meeting
+  });
+});

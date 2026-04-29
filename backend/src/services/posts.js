@@ -19,7 +19,40 @@ const POST_INCLUDE = {
   _count: { select: { messages: true, meetingRequests: true } },
 };
 
+// H-01 (FR-10): non-public posts are only readable by the owner, an admin,
+// or a counterpart on an accepted/scheduled MeetingRequest with NDA accepted.
+// Centralised here so listPosts and getPost share the exact same rule.
+const confidentialityVisibility = (userId) => ({
+  OR: [
+    { confidentiality: 'public' },
+    { authorId: userId },
+    {
+      meetingRequests: {
+        some: {
+          OR: [{ requestorId: userId }, { recipientId: userId }],
+          status: { in: ['accepted', 'scheduled'] },
+          ndaAcceptedAt: { not: null },
+        },
+      },
+    },
+  ],
+});
+
+const canReadConfidentialPost = (post, userId, role) => {
+  if (post.confidentiality === 'public') return true;
+  if (role === 'admin') return true;
+  if (post.authorId === userId) return true;
+  const meetings = post.meetingRequests || [];
+  return meetings.some(
+    (m) =>
+      (m.requestorId === userId || m.recipientId === userId) &&
+      ['accepted', 'scheduled'].includes(m.status) &&
+      m.ndaAcceptedAt
+  );
+};
+
 const listPosts = async ({
+  userId,
   role,
   page = 1,
   limit = 20,
@@ -37,6 +70,7 @@ const listPosts = async ({
   const where = {
     deletedAt: null,
     ...(!includeAll && role !== 'admin' && { status: { in: ['active', 'meeting_scheduled', 'partner_found'] } }),
+    ...(role !== 'admin' && userId && confidentialityVisibility(userId)),
     ...(domain && {
       OR: [
         { workingDomain: { contains: domain, mode: 'insensitive' } },
@@ -72,18 +106,32 @@ const listPosts = async ({
   return { posts, total, page, pages: Math.ceil(total / limit) };
 };
 
-const getPost = async (id) => {
+const getPost = async (id, userId, role) => {
   const post = await prisma.post.findUnique({
     where: { id, deletedAt: null },
-    include: POST_INCLUDE,
+    include: {
+      ...POST_INCLUDE,
+      meetingRequests: {
+        select: { requestorId: true, recipientId: true, status: true, ndaAcceptedAt: true },
+      },
+    },
   });
   if (!post) {
     const err = new Error('Post not found');
     err.status = 404;
     throw err;
   }
+  if (!canReadConfidentialPost(post, userId, role)) {
+    const err = new Error('Forbidden — confidential post');
+    err.status = 403;
+    throw err;
+  }
   await prisma.post.update({ where: { id }, data: { viewCount: { increment: 1 } } });
-  return post;
+  // Strip the meetingRequests payload from the response — it was loaded purely
+  // for the access check and exposes counterpart user IDs / NDA timestamps.
+  // eslint-disable-next-line no-unused-vars
+  const { meetingRequests, ...safe } = post;
+  return safe;
 };
 
 const buildCreateData = (authorId, ownerRole, body) => ({

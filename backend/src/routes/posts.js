@@ -44,6 +44,7 @@ router.get(
     try {
       const { page, limit, domain, status, stage, city, country, ownerId, search } = req.query;
       const result = await postService.listPosts({
+        userId: req.user.id,
         role: req.user.role,
         page: parseInt(page) || 1,
         limit: parseInt(limit) || 20,
@@ -65,7 +66,8 @@ router.get(
 router.get('/mine', authenticate, async (req, res, next) => {
   try {
     const result = await postService.listPosts({
-      role: 'admin', // bypass status filter for own posts
+      userId: req.user.id,
+      role: 'admin', // bypass status filter for own posts; owner sees own confidentials anyway
       ownerId: req.user.id,
       includeAll: true,
       page: parseInt(req.query.page) || 1,
@@ -79,7 +81,7 @@ router.get('/mine', authenticate, async (req, res, next) => {
 
 router.get('/:id', authenticate, [param('id').isString().trim().notEmpty()], validate, async (req, res, next) => {
   try {
-    const post = await postService.getPost(req.params.id);
+    const post = await postService.getPost(req.params.id, req.user.id, req.user.role);
     res.json(post);
   } catch (err) {
     next(err);
