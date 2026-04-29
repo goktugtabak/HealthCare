@@ -56,34 +56,12 @@ test.describe('Workflow 1: LiveDemo Role Matrix', () => {
       // Verify redirect to /my-posts (per CreateEditPostPage.tsx:142)
       await expect(healthcarePage).toHaveURL(/\/my-posts/, { timeout: 10_000 });
 
-      // Step 3: [EngineerMehmet] /explore — verify the post is discoverable.
-      // The form defaults to "Confidential" and H-01 hides confidential posts
-      // from anyone without an accepted meeting on them, so the engineer
-      // legitimately won't see it on /explore yet. We instead assert that the
-      // engineer can find it via the /api/posts endpoint with the visibility
-      // bypass that an accepted meeting would grant — i.e., we just verify
-      // the post is reachable for this user pair through the API in step 4.
-      await gotoAuthed(engineerPage, '/explore');
-      await expect(
-        engineerPage.getByRole('heading', { name: /Explore posts/i }),
-      ).toBeVisible({ timeout: 8_000 });
-
-      // Step 4: [EngineerMehmet] Click "Request collaboration" → verify NDA modal
-      // App-gap workaround: the "Request collaboration" button on PostDetailPage
-      // requires post.owner data, which is only loaded via /api/admin/users (admin
-      // only). Non-admins land on a post detail page that is missing the action
-      // button entirely. We therefore exercise the same business action through
-      // the meetings API. This still creates a pending meeting request that
-      // healthcare-ayse will see in /meetings (step 6+), preserving the
-      // sync-verification semantics of the workflow.
-      // Resolve the post id via the owner's /api/posts/mine — H-01 hides
-      // confidential posts from non-participants on the list endpoint, so we
-      // ask healthcare-ayse (the owner) for it.
+      // The post defaults to "Confidential" in the form; H-01 hides those
+      // from non-participants on /explore. To exercise steps 3-5 via the UI
+      // we patch the post visibility to "public" via the API as the owner —
+      // a thin pre-condition that doesn't change the shape of the test.
       const apiBase = process.env.API_URL ?? 'http://localhost:5001/api';
       const healthcareToken = await healthcarePage.evaluate(() =>
-        window.localStorage.getItem('health-ai-access-token'),
-      );
-      const engToken = await engineerPage.evaluate(() =>
         window.localStorage.getItem('health-ai-access-token'),
       );
       const myPostsRes = await healthcarePage.request.get(`${apiBase}/posts/mine?limit=100`, {
@@ -94,29 +72,60 @@ test.describe('Workflow 1: LiveDemo Role Matrix', () => {
       const found = myPosts.posts.find((p) => p.title === postTitle);
       expect(found, `post "${postTitle}" must be in healthcare-ayse's /mine list`).toBeTruthy();
       const resolvedPostId = found!.id;
-
-      // Step 5: [EngineerMehmet] Accept NDA + submit — verify status "pending"
-      const futureDate = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
-      const slotValue = futureDate.toISOString().slice(0, 16); // YYYY-MM-DDTHH:mm
-      const meetingRes = await engineerPage.request.post(`${apiBase}/meetings`, {
+      const patchRes = await healthcarePage.request.put(`${apiBase}/posts/${resolvedPostId}`, {
         headers: {
-          Authorization: `Bearer ${engToken}`,
+          Authorization: `Bearer ${healthcareToken}`,
           'Content-Type': 'application/json',
         },
-        data: {
-          postId: resolvedPostId,
-          ndaAccepted: true,
-          introductoryMessage:
-            'Hi — I have ML / signal-processing experience and would love to discuss this collaboration.',
-          proposedSlots: [slotValue],
-        },
+        data: { confidentiality: 'public' },
       });
-      if (!meetingRes.ok()) {
-        const body = await meetingRes.text();
-        throw new Error(`POST /meetings failed: ${meetingRes.status()} ${body}`);
+      expect(patchRes.ok()).toBeTruthy();
+
+      // Step 3: [EngineerMehmet] /explore — verify the post appears.
+      await gotoAuthed(engineerPage, '/explore');
+      const postHeading = engineerPage.getByRole('heading', { name: postTitle, exact: true });
+      await expect(postHeading).toBeVisible({ timeout: 8_000 });
+
+      // Step 4: [EngineerMehmet] open the post → click "Request collaboration"
+      // → fill the NDA modal → submit. Real button-click flow (the F-02 fix
+      // makes the button render in real-mode without /api/admin/users data).
+      // The PostCard's "View" button navigates to the post detail page.
+      const postCard = postHeading.locator(
+        'xpath=ancestor::article[1]',
+      );
+      await postCard.getByRole('button', { name: /^View$/ }).click();
+      await engineerPage.waitForURL(/\/posts\//, { timeout: 5_000 });
+      await engineerPage.getByRole('button', { name: 'Request collaboration' }).click();
+      await expect(
+        engineerPage.getByRole('heading', { name: /Send collaboration request/i }),
+      ).toBeVisible({ timeout: 5_000 });
+
+      // Step 5: fill the introductory message, propose a slot, accept NDA, submit.
+      await engineerPage
+        .locator('textarea')
+        .first()
+        .fill(
+          'Hi — I have ML / signal-processing experience and would love to discuss this collaboration.',
+        );
+      const futureDate = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+      const slotValue = futureDate.toISOString().slice(0, 16); // YYYY-MM-DDTHH:mm
+      // The modal has a single datetime input for the first proposed slot.
+      const slotInput = engineerPage.locator('input[type="datetime-local"]').first();
+      if (await slotInput.isVisible().catch(() => false)) {
+        await slotInput.fill(slotValue);
       }
-      const meeting = (await meetingRes.json()) as { id: string; status: string };
-      expect(meeting.status?.toLowerCase()).toBe('pending');
+      // Modal step 1 → step 2 (NDA) → submit
+      await engineerPage.getByRole('button', { name: /Continue to NDA/i }).click();
+      const ndaCheckbox = engineerPage.getByRole('checkbox').first();
+      if (await ndaCheckbox.isVisible().catch(() => false)) {
+        await ndaCheckbox.check();
+      }
+      await engineerPage.getByRole('button', { name: /Send request/i }).click();
+
+      // Verify the engineer sees the "Request pending" state on the same page.
+      await expect(
+        engineerPage.getByRole('button', { name: /Request pending/i }),
+      ).toBeVisible({ timeout: 8_000 });
 
       // Step 6: [HealthcareAyse] /meetings — Sync 5s, verify request
       // Workflow says /meetings/inbox but the actual route is /meetings.

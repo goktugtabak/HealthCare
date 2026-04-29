@@ -46,7 +46,28 @@ const PostDetailPage = () => {
     return null;
   }
 
-  const owner = users.find((user) => user.id === post.ownerId);
+  // F-02: in real-mode `users` only contains the current user (the
+  // /api/admin/users endpoint is admin-only), so users.find() returns
+  // undefined when an engineer views a healthcare-owned post. Fall back to
+  // the `author` payload returned by GET /api/posts/:id, which carries the
+  // same fields we render in the "Posted by" sidebar.
+  const ownerFromUsers = users.find((user) => user.id === post.ownerId);
+  const owner =
+    ownerFromUsers ||
+    (post.author
+      ? {
+          id: post.author.id,
+          fullName:
+            post.author.fullName ||
+            [post.author.firstName, post.author.lastName].filter(Boolean).join(" ") ||
+            "",
+          institution: post.author.institution || "",
+          role: post.author.role || post.ownerRole,
+          city: post.author.city || "",
+          country: post.author.country || "",
+          avatar: post.author.avatar || undefined,
+        }
+      : undefined);
   const isOwner = currentUser.id === post.ownerId;
 
   const hasExistingThread = messages.some(

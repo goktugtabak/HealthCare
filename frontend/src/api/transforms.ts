@@ -125,6 +125,7 @@ type ApiPost = Omit<Post, "status" | "projectStage" | "confidentialityLevel" | "
   }>;
   authorId?: string;
   ownerRole?: Role;
+  author?: Post["author"];
 };
 
 const toIsoString = (value: unknown): string => {
@@ -151,6 +152,7 @@ export const normalizePost = (p: ApiPost): Post => {
     ...p,
     ownerId: p.ownerId || (p.authorId ?? ""),
     ownerRole: (p.ownerRole as Role) || "engineer",
+    author: p.author,
     title: p.title,
     workingDomain: p.workingDomain || (p as unknown as { domain?: string }).domain || "",
     shortExplanation: p.shortExplanation || (p as unknown as { description?: string }).description || "",

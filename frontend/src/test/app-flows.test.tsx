@@ -177,6 +177,53 @@ describe("app flows", () => {
   });
 });
 
+describe("F-02 — normalizePost preserves the author payload from the API", () => {
+  it("returns post.author so PostDetailPage can fall back to it when users[] is empty", async () => {
+    const { normalizePost } = await import("@/api/transforms");
+    const apiResponse = {
+      id: "p-test",
+      authorId: "u1",
+      ownerRole: "healthcare" as const,
+      title: "Test post",
+      workingDomain: "Cardiology",
+      shortExplanation: "...",
+      requiredExpertise: ["ML"],
+      matchTags: [],
+      projectStage: "ideation",
+      collaborationType: "Co-Development",
+      confidentiality: "public",
+      country: "Turkey",
+      city: "Ankara",
+      expiryDate: "2026-12-01",
+      autoClose: false,
+      status: "active",
+      createdAt: "2026-01-01T00:00:00Z",
+      updatedAt: "2026-01-01T00:00:00Z",
+      commitmentLevel: "Part-time",
+      highLevelIdea: "...",
+      notesPreview: "...",
+      author: {
+        id: "u1",
+        fullName: "Dr. Ayse Kaya",
+        firstName: "Ayse",
+        lastName: "Kaya",
+        role: "healthcare" as const,
+        institution: "Hacettepe",
+        city: "Ankara",
+        country: "Turkey",
+        avatar: null,
+      },
+    };
+    const normalized = normalizePost(apiResponse);
+    expect(normalized.author).toBeDefined();
+    expect(normalized.author?.id).toBe("u1");
+    expect(normalized.author?.fullName).toBe("Dr. Ayse Kaya");
+    expect(normalized.author?.role).toBe("healthcare");
+    // Also confirm ownerId still resolves from authorId.
+    expect(normalized.ownerId).toBe("u1");
+  });
+});
+
 describe("F-01 — ProtectedRoute does not flicker to /login during AuthContext bootstrap", () => {
   it("waits for /api/auth/me to resolve before redirecting unauthenticated users", async () => {
     // Force real-mode + a valid token in localStorage. authApi.fetchCurrentUser

@@ -70,6 +70,19 @@ export interface Post {
   highLevelIdea: string;
   notesPreview: string;
   statusHistory?: PostStatusHistoryEntry[];
+  // Real-mode: GET /api/posts/:id returns the author so we can render
+  // the "Posted by" sidebar without /api/admin/users (which is admin-only).
+  author?: {
+    id: string;
+    fullName?: string | null;
+    firstName?: string;
+    lastName?: string;
+    role?: Role;
+    institution?: string | null;
+    city?: string | null;
+    country?: string | null;
+    avatar?: string | null;
+  };
 }
 
 export interface MeetingRequest {
