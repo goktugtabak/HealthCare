@@ -60,38 +60,58 @@ const DashboardPage = () => {
   const { openDock } = useChatDock();
   const navigate = useNavigate();
 
-  if (!currentUser) {
-    return null;
-  }
-
-  const myPosts = sortNewest(posts.filter((post) => post.ownerId === currentUser.id));
-  const activeFeed = sortNewest(
-    posts.filter((post) => post.ownerId !== currentUser.id && post.status === "Active"),
-  );
-  const relevantFeed = activeFeed.filter((post) => matchesUser(post, currentUser));
-  const myNotifications = sortNewest(
-    notifications.filter((notification) => notification.userId === currentUser.id),
-  );
+  const myPosts = currentUser
+    ? sortNewest(posts.filter((post) => post.ownerId === currentUser.id))
+    : [];
+  const activeFeed = currentUser
+    ? sortNewest(
+        posts.filter((post) => post.ownerId !== currentUser.id && post.status === "Active"),
+      )
+    : [];
+  const relevantFeed = currentUser
+    ? activeFeed.filter((post) => matchesUser(post, currentUser))
+    : [];
+  const myNotifications = currentUser
+    ? sortNewest(
+        notifications.filter((notification) => notification.userId === currentUser.id),
+      )
+    : [];
   const unreadNotifications = myNotifications.filter((notification) => !notification.read).length;
-  const myMessages = messages.filter(
-    (message) =>
-      message.senderId === currentUser.id ||
-      message.recipientId === currentUser.id,
-  );
-  const unreadMessages = myMessages.filter(
-    (message) => message.recipientId === currentUser.id && !message.readAt,
-  ).length;
-  const activeThreads = new Set(
-    myMessages.map((message) => {
-      const other =
-        message.senderId === currentUser.id
-          ? message.recipientId
-          : message.senderId;
-      return `${message.postId}::${other}`;
-    }),
-  ).size;
+  const myMessages = currentUser
+    ? messages.filter(
+        (message) =>
+          message.senderId === currentUser.id ||
+          message.recipientId === currentUser.id,
+      )
+    : [];
+  const unreadMessages = currentUser
+    ? myMessages.filter(
+        (message) => message.recipientId === currentUser.id && !message.readAt,
+      ).length
+    : 0;
+  const activeThreads = currentUser
+    ? new Set(
+        myMessages.map((message) => {
+          const other =
+            message.senderId === currentUser.id
+              ? message.recipientId
+              : message.senderId;
+          return `${message.postId}::${other}`;
+        }),
+      ).size
+    : 0;
 
   const nextAction: NextBestAction = useMemo(() => {
+    if (!currentUser) {
+      return {
+        headline: "Loading...",
+        description: "",
+        ctaLabel: "",
+        to: "/dashboard",
+        icon: Compass,
+        tone: "accent",
+      };
+    }
     if (currentUser.profileCompleteness < 60) {
       return {
         headline: "Finish your profile to unlock matches",
@@ -167,6 +187,10 @@ const DashboardPage = () => {
     myPosts.length,
     relevantFeed.length,
   ]);
+
+  if (!currentUser) {
+    return null;
+  }
 
   const onboardingSteps = buildOnboardingSteps(
     currentUser,

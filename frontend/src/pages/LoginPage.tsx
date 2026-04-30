@@ -5,43 +5,68 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Separator } from "@/components/ui/separator";
+import { Captcha } from "@/components/Captcha";
 import { useAuth } from "@/contexts/AuthContext";
+import { isMockMode, toApiError } from "@/api";
 import { toast } from "@/hooks/use-toast";
 import type { Role } from "@/data/types";
 
+const REAL_MODE = !isMockMode();
+
 const LoginPage = () => {
   const navigate = useNavigate();
-  const { login, loginByEmail } = useAuth();
+  const { login, loginWithCredentials } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [honeypot, setHoneypot] = useState("");
+  const [captchaAnswer, setCaptchaAnswer] = useState("");
+  const [captchaVerified, setCaptchaVerified] = useState(false);
+  const [captchaError, setCaptchaError] = useState<string | undefined>();
+  const [submitError, setSubmitError] = useState<string | undefined>();
+  const [submitting, setSubmitting] = useState(false);
 
-  const handleLogin = (event: React.FormEvent) => {
+  const handleLogin = async (event: React.FormEvent) => {
     event.preventDefault();
+    setSubmitError(undefined);
 
     if (!email.trim()) {
       toast({
         title: "Enter your email",
-        description: "This frontend demo matches accounts by email for sign-in.",
+        description: "An institutional email is required for sign-in.",
       });
       return;
     }
 
-    const didLogin = loginByEmail(email);
+    if (!captchaVerified) {
+      setCaptchaError("Solve the CAPTCHA to continue");
+      return;
+    }
+    setCaptchaError(undefined);
 
-    if (!didLogin) {
+    if (REAL_MODE && !password) {
+      setSubmitError("Password is required");
+      return;
+    }
+
+    try {
+      setSubmitting(true);
+      const user = await loginWithCredentials({ email: email.trim(), password, honeypot });
+      navigate(user.role === "admin" ? "/admin" : "/dashboard");
+    } catch (err) {
+      const apiError = toApiError(err);
+      setSubmitError(apiError.message || "Login failed");
       toast({
-        title: "Account not found",
-        description:
-          "Use one of the demo shortcuts or register a new account. Passwords are not persisted in this frontend-only demo.",
+        title: "Login failed",
+        description: apiError.message || "Invalid credentials",
+        variant: "destructive",
       });
-      return;
+    } finally {
+      setSubmitting(false);
     }
-
-    void password;
-    navigate("/dashboard");
   };
 
   const quickLogin = (role: Role) => {
+    if (REAL_MODE) return;
     login(role);
     navigate(role === "admin" ? "/admin" : "/dashboard");
   };
@@ -60,6 +85,17 @@ const LoginPage = () => {
           onSubmit={handleLogin}
           className="space-y-4 rounded-[28px] border border-border bg-card p-6 shadow-sm"
         >
+          {/* Honeypot — hidden from users, bots fill it. */}
+          <input
+            type="text"
+            tabIndex={-1}
+            autoComplete="off"
+            value={honeypot}
+            onChange={(event) => setHoneypot(event.target.value)}
+            style={{ position: "absolute", left: "-9999px", width: 1, height: 1, opacity: 0 }}
+            aria-hidden="true"
+          />
+
           <div>
             <Label htmlFor="email" className="text-sm font-medium">
               Email
@@ -71,6 +107,7 @@ const LoginPage = () => {
               onChange={(event) => setEmail(event.target.value)}
               placeholder="name@institution.edu.tr"
               className="mt-1"
+              autoComplete="email"
             />
           </div>
           <div>
@@ -83,10 +120,13 @@ const LoginPage = () => {
               value={password}
               onChange={(event) => setPassword(event.target.value)}
               className="mt-1"
+              autoComplete="current-password"
             />
-            <p className="mt-1 text-xs text-muted-foreground">
-              Passwords are UI-only in this frontend demo. Email match controls access.
-            </p>
+            {!REAL_MODE && (
+              <p className="mt-1 text-xs text-muted-foreground">
+                Mock mode — passwords are accepted as-is. Run with VITE_USE_MOCK_DATA=false to enforce real credentials.
+              </p>
+            )}
           </div>
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
@@ -99,8 +139,29 @@ const LoginPage = () => {
               Forgot password?
             </button>
           </div>
-          <Button type="submit" className="w-full">
-            Log in
+
+          <Captcha
+            value={captchaAnswer}
+            onChange={(value) => {
+              setCaptchaAnswer(value);
+              if (captchaError) setCaptchaError(undefined);
+            }}
+            verified={captchaVerified}
+            onVerifiedChange={setCaptchaVerified}
+            error={captchaError}
+          />
+
+          {submitError && (
+            <div
+              role="alert"
+              className="rounded-2xl border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive"
+            >
+              {submitError}
+            </div>
+          )}
+
+          <Button type="submit" className="w-full" disabled={submitting}>
+            {submitting ? "Signing in…" : "Log in"}
           </Button>
           <p className="text-center text-xs text-muted-foreground">
             Do not have an account?{" "}
@@ -114,39 +175,41 @@ const LoginPage = () => {
           </p>
         </form>
 
-        <div className="mt-6">
-          <div className="mb-4 flex items-center gap-3">
-            <Separator className="flex-1" />
-            <span className="text-xs text-muted-foreground">Quick demo access</span>
-            <Separator className="flex-1" />
+        {!REAL_MODE && (
+          <div className="mt-6">
+            <div className="mb-4 flex items-center gap-3">
+              <Separator className="flex-1" />
+              <span className="text-xs text-muted-foreground">Quick demo access</span>
+              <Separator className="flex-1" />
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => quickLogin("engineer")}
+                className="text-xs"
+              >
+                Engineer
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => quickLogin("healthcare")}
+                className="text-xs"
+              >
+                Healthcare
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => quickLogin("admin")}
+                className="text-xs"
+              >
+                Admin
+              </Button>
+            </div>
           </div>
-          <div className="grid grid-cols-3 gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => quickLogin("engineer")}
-              className="text-xs"
-            >
-              Engineer
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => quickLogin("healthcare")}
-              className="text-xs"
-            >
-              Healthcare
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => quickLogin("admin")}
-              className="text-xs"
-            >
-              Admin
-            </Button>
-          </div>
-        </div>
+        )}
       </div>
     </div>
   );

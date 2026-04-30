@@ -1,4 +1,4 @@
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { Activity, Globe, Zap, Network, Lock, CheckCircle, ArrowUpRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -8,11 +8,13 @@ import { FeaturesBento } from "@/components/landing/FeaturesBento";
 import { HowItWorks } from "@/components/landing/HowItWorks";
 import { RolesSection } from "@/components/landing/RolesSection";
 
+// SRS demonstration figures — replace with live aggregates from
+// /api/admin/stats before the production launch announcement.
 const stats = [
-  { label: "Active Professionals", value: "2,500+" },
-  { label: "Successful Matches", value: "850+" },
-  { label: "Institutions", value: "45" },
-  { label: "Projects Initiated", value: "320" },
+  { label: "Active Professionals", value: "2,500+", note: "Demo" },
+  { label: "Successful Matches", value: "850+", note: "Demo" },
+  { label: "Institutions", value: "45", note: "Demo" },
+  { label: "Projects Initiated", value: "320", note: "Demo" },
 ];
 
 const LandingPage = () => {
@@ -86,6 +88,11 @@ const LandingPage = () => {
                       <span className="text-xs md:text-sm font-semibold text-muted-foreground uppercase tracking-widest">
                         {stat.label}
                       </span>
+                      {stat.note && (
+                        <span className="mt-1 rounded-full border border-white/10 bg-background/40 px-2 py-0.5 text-[10px] uppercase tracking-wider text-muted-foreground/60">
+                          {stat.note}
+                        </span>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -125,7 +132,7 @@ const LandingPage = () => {
             </div>
 
             <div className="flex flex-wrap justify-center gap-4 text-sm font-medium">
-              {["HIPAA Compliant Setup", "End-to-End Encryption", "Verified Professionals"].map((label) => (
+              {["GDPR & KVKK Compliant", "End-to-End Encryption", "Verified Professionals"].map((label) => (
                 <div key={label} className="flex items-center gap-2 rounded-full border border-white/10 bg-background/40 px-5 py-2.5 backdrop-blur-md shadow-sm">
                   <CheckCircle className="h-4 w-4 text-primary" />
                   <span className="text-muted-foreground">{label}</span>
@@ -175,10 +182,10 @@ const LandingPage = () => {
             <div>
               <h4 className="font-semibold mb-4 text-foreground">Legal</h4>
               <ul className="space-y-3 text-sm text-muted-foreground/80 font-light">
-                <li><a href="#" className="hover:text-primary transition-colors">Privacy Policy</a></li>
-                <li><a href="#" className="hover:text-primary transition-colors">Terms of Service</a></li>
-                <li><a href="#" className="hover:text-primary transition-colors">Cookie Policy</a></li>
-                <li><a href="#" className="hover:text-primary transition-colors">Data Processing Addendum</a></li>
+                <li><Link to="/privacy" className="hover:text-primary transition-colors">Privacy Policy</Link></li>
+                <li><Link to="/terms" className="hover:text-primary transition-colors">Terms of Service</Link></li>
+                <li><Link to="/privacy" className="hover:text-primary transition-colors">Cookie Policy</Link></li>
+                <li><Link to="/privacy" className="hover:text-primary transition-colors">KVKK & GDPR</Link></li>
               </ul>
             </div>
           </div>

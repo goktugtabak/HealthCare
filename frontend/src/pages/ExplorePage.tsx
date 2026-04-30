@@ -17,20 +17,34 @@ const ExplorePage = () => {
   const { posts } = usePlatformData();
   const [search, setSearch] = useState("");
   const [domain, setDomain] = useState("all");
+  const [city, setCity] = useState("all");
+  const [country, setCountry] = useState("all");
+  const [sameCityOnly, setSameCityOnly] = useState(false);
   const [relevantOnly, setRelevantOnly] = useState(false);
   const [sort, setSort] = useState<SortMode>("relevance");
   const [activeTag, setActiveTag] = useState<string | null>(null);
 
-  if (!currentUser) {
-    return null;
-  }
+  const cityOptions = useMemo(
+    () => [...new Set(posts.map((post) => post.city).filter(Boolean))].sort(),
+    [posts],
+  );
+  const countryOptions = useMemo(
+    () => [...new Set(posts.map((post) => post.country).filter(Boolean))].sort(),
+    [posts],
+  );
 
-  const interestSource =
-    currentUser.role === "healthcare"
-      ? currentUser.interestTags
-      : currentUser.expertiseTags;
+  const interestSource = useMemo(
+    () =>
+      currentUser
+        ? currentUser.role === "healthcare"
+          ? currentUser.interestTags
+          : currentUser.expertiseTags
+        : [],
+    [currentUser],
+  );
 
   const results = useMemo(() => {
+    if (!currentUser) return [];
     const base = posts.filter(
       (post) => post.status === "Active" && post.ownerId !== currentUser.id,
     );
@@ -61,6 +75,14 @@ const ExplorePage = () => {
 
       if (search && !haystack.includes(search.toLowerCase())) return false;
       if (domain !== "all" && post.workingDomain !== domain) return false;
+      if (city !== "all" && post.city !== city) return false;
+      if (country !== "all" && post.country !== country) return false;
+      if (
+        sameCityOnly &&
+        currentUser.city &&
+        post.city.toLowerCase() !== currentUser.city.toLowerCase()
+      )
+        return false;
       if (relevantOnly && matchCount === 0) return false;
       if (activeTag && !relatedTags.includes(activeTag.toLowerCase())) return false;
 
@@ -86,19 +108,29 @@ const ExplorePage = () => {
     return filtered;
   }, [
     activeTag,
-    currentUser.id,
+    city,
+    country,
+    currentUser,
     domain,
     interestSource,
     posts,
     relevantOnly,
+    sameCityOnly,
     search,
     sort,
   ]);
+
+  if (!currentUser) {
+    return null;
+  }
 
   const relevantCount = results.filter((entry) => entry.matchCount > 0).length;
   const filtersActive =
     Boolean(search) ||
     domain !== "all" ||
+    city !== "all" ||
+    country !== "all" ||
+    sameCityOnly ||
     relevantOnly ||
     activeTag !== null ||
     sort !== "relevance";
@@ -106,6 +138,9 @@ const ExplorePage = () => {
   const clearAll = () => {
     setSearch("");
     setDomain("all");
+    setCity("all");
+    setCountry("all");
+    setSameCityOnly(false);
     setRelevantOnly(false);
     setActiveTag(null);
     setSort("relevance");
@@ -137,7 +172,7 @@ const ExplorePage = () => {
       />
 
       <div className="sticky top-0 z-20 -mx-1 mb-6 rounded-[28px] bg-card/95 p-4 shadow-sm ring-1 ring-border/60 backdrop-blur supports-[backdrop-filter]:bg-card/75">
-        <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_200px_auto_auto] lg:items-end">
+        <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_180px_180px_180px_auto_auto] lg:items-end">
           <SearchInput
             value={search}
             onChange={setSearch}
@@ -148,6 +183,18 @@ const ExplorePage = () => {
             value={domain}
             onChange={setDomain}
             options={domainOptions}
+          />
+          <FilterSelect
+            label="City"
+            value={city}
+            onChange={setCity}
+            options={cityOptions}
+          />
+          <FilterSelect
+            label="Country"
+            value={country}
+            onChange={setCountry}
+            options={countryOptions}
           />
           <div className="inline-flex items-center gap-1 rounded-full bg-muted p-1">
             <button
@@ -189,6 +236,23 @@ const ExplorePage = () => {
             Relevant to me
           </button>
         </div>
+
+        {currentUser.city && (
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setSameCityOnly((prev) => !prev)}
+              className={cn(
+                "inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-xs font-medium transition-colors",
+                sameCityOnly
+                  ? "bg-primary text-primary-foreground shadow-sm"
+                  : "bg-card text-muted-foreground ring-1 ring-border hover:text-foreground",
+              )}
+            >
+              Same city as me ({currentUser.city})
+            </button>
+          </div>
+        )}
 
         {interestSource.length > 0 && (
           <div className="mt-3 flex flex-wrap items-center gap-1.5">

@@ -7,18 +7,25 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// ============================================================
+// ENUMS — aligned with frontend src/data/types.ts (Apr 2026 SRS)
+// Frontend uses Title Case at the UI; API layer translates to/from
+// these snake_case database values.
+// ============================================================
+
 enum Role {
   engineer
-  doctor
+  healthcare
   admin
 }
 
 enum ProjectStage {
-  idea
-  concept
+  ideation
+  research
   prototype
-  pilot
-  deployed
+  development
+  testing
+  clinical_validation
 }
 
 enum PostStatus {
@@ -27,147 +34,305 @@ enum PostStatus {
   meeting_scheduled
   partner_found
   expired
+  removed
 }
 
 enum Confidentiality {
   public
-  private
+  confidential
+  highly_confidential
 }
 
 enum MeetingStatus {
   pending
+  accepted
+  declined
   scheduled
   completed
   cancelled
 }
 
+enum UserStatus {
+  active
+  suspended
+  deactivated
+  pending_deletion
+}
+
 enum NotificationType {
   message_received
   meeting_requested
+  meeting_accepted
+  meeting_declined
   meeting_scheduled
+  meeting_cancelled
   nda_required
+  post_status
   post_expired
   partner_found
   email_verification
+  account
+  interest
 }
 
+enum ContactMethod {
+  email
+  phone
+  linkedin
+  other
+}
+
+enum AuditResult {
+  success
+  failure
+  warning
+}
+
+// ============================================================
+// MODELS
+// ============================================================
+
 model User {
-  id            String    @id @default(uuid())
-  email         String    @unique
-  passwordHash  String
-  firstName     String
-  lastName      String
-  role          Role      @default(engineer)
-  institution   String?
-  bio           String?
-  verifiedAt    DateTime?
-  verifyToken   String?   @unique
-  refreshToken  String?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-  deletedAt     DateTime?
+  id                     String         @id @default(uuid())
+  email                  String         @unique
+  passwordHash           String
+  firstName              String
+  lastName               String
+  fullName               String?
+  role                   Role           @default(engineer)
+  institution            String?
+  bio                    String?
+  city                   String?
+  country                String?
+  expertiseTags          String[]       @default([])
+  interestTags           String[]       @default([])
+  portfolioSummary       String?
+  portfolioLinks         String[]       @default([])
+  preferredContactMethod ContactMethod?
+  preferredContactValue  String?
+  notifyInApp            Boolean        @default(true)
+  notifyEmail            Boolean        @default(true)
+  status                 UserStatus     @default(active)
+  emailVerified          Boolean        @default(false)
+  domainVerified         Boolean        @default(false)
+  onboardingCompleted    Boolean        @default(false)
+  profileCompleteness    Int            @default(0)
+  avatar                 String?
+  verifyToken            String?        @unique
+  verifiedAt             DateTime?
+  /// @deprecated — use Session table; migration in progress (N6).
+  refreshToken           String?
+  deletionRequestedAt    DateTime?
+  lastActiveAt           DateTime?
+  createdAt              DateTime       @default(now())
+  updatedAt              DateTime       @updatedAt
+  deletedAt              DateTime?
 
-  posts              Post[]
-  sentMessages       Message[]       @relation("SentMessages")
-  receivedMessages   Message[]       @relation("ReceivedMessages")
-  meetingRequests    MeetingRequest[] @relation("RequestorMeetings")
-  receivedMeetings   MeetingRequest[] @relation("RecipientMeetings")
-  notifications      Notification[]
-  auditLogs          AuditLog[]
+  posts             Post[]
+  sentMessages      Message[]           @relation("SentMessages")
+  receivedMessages  Message[]           @relation("ReceivedMessages")
+  meetingRequests   MeetingRequest[]    @relation("RequestorMeetings")
+  receivedMeetings  MeetingRequest[]    @relation("RecipientMeetings")
+  notifications     Notification[]
+  auditLogs         AuditLog[]
+  ndaAcceptances    NDAAcceptance[]
+  postStatusChanges PostStatusHistory[]
+  sessions          Session[]
 
+  @@index([role])
+  @@index([status])
   @@map("users")
 }
 
 model Post {
   id                String          @id @default(uuid())
   title             String
-  description       String
-  domain            String
-  expertiseNeeded   String
-  commitmentLevel   String
-  projectStage      ProjectStage    @default(idea)
+  workingDomain     String
+  shortExplanation  String
+  description       String?
+  domain            String?
+  requiredExpertise String[]        @default([])
+  matchTags         String[]        @default([])
+  projectStage      ProjectStage    @default(ideation)
   status            PostStatus      @default(draft)
   confidentiality   Confidentiality @default(public)
-  tags              String[]        @default([])
+  collaborationType String?
+  commitmentLevel   String?
+  highLevelIdea     String?
+  notesPreview      String?
+  country           String?
+  city              String?
+  expiryDate        DateTime?
+  autoClose         Boolean         @default(false)
   authorId          String
+  ownerRole         Role            @default(engineer)
   viewCount         Int             @default(0)
   createdAt         DateTime        @default(now())
   updatedAt         DateTime        @updatedAt
   deletedAt         DateTime?
-  expiresAt         DateTime?
 
-  author          User             @relation(fields: [authorId], references: [id])
+  author          User                @relation(fields: [authorId], references: [id])
   messages        Message[]
   meetingRequests MeetingRequest[]
+  statusHistory   PostStatusHistory[]
 
+  @@index([authorId])
+  @@index([status])
+  @@index([city, country])
+  @@index([projectStage])
   @@map("posts")
 }
 
+model PostStatusHistory {
+  id        String     @id @default(uuid())
+  postId    String
+  status    PostStatus
+  changedAt DateTime   @default(now())
+  changedBy String?
+  reason    String?
+
+  post          Post  @relation(fields: [postId], references: [id], onDelete: Cascade)
+  changedByUser User? @relation(fields: [changedBy], references: [id])
+
+  @@index([postId])
+  @@map("post_status_history")
+}
+
 model Message {
-  id             String    @id @default(uuid())
-  postId         String
-  senderId       String
-  recipientId    String
-  content        String
-  ndaAcceptedAt  DateTime?
-  isRead         Boolean   @default(false)
-  createdAt      DateTime  @default(now())
-  deletedAt      DateTime?
+  id               String    @id @default(uuid())
+  postId           String
+  senderId         String
+  recipientId      String
+  meetingRequestId String?
+  content          String
+  ndaAcceptedAt    DateTime?
+  isRead           Boolean   @default(false)
+  readAt           DateTime?
+  createdAt        DateTime  @default(now())
+  deletedAt        DateTime?
 
-  post      Post @relation(fields: [postId], references: [id])
-  sender    User @relation("SentMessages", fields: [senderId], references: [id])
-  recipient User @relation("ReceivedMessages", fields: [recipientId], references: [id])
+  post           Post            @relation(fields: [postId], references: [id])
+  sender         User            @relation("SentMessages", fields: [senderId], references: [id])
+  recipient      User            @relation("ReceivedMessages", fields: [recipientId], references: [id])
+  meetingRequest MeetingRequest? @relation(fields: [meetingRequestId], references: [id])
 
+  @@index([postId])
+  @@index([senderId, recipientId])
   @@map("messages")
 }
 
 model MeetingRequest {
-  id            String        @id @default(uuid())
-  postId        String
-  requestorId   String
-  recipientId   String
-  proposedTimes Json
-  agreedTime    DateTime?
-  externalUrl   String?
-  status        MeetingStatus @default(pending)
-  notes         String?
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
+  id                  String        @id @default(uuid())
+  postId              String
+  requestorId         String
+  recipientId         String
+  requesterRole       Role
+  introductoryMessage String        @default("")
+  proposedSlots       Json          @default("[]")
+  selectedSlot        DateTime?
+  agreedTime          DateTime?
+  externalUrl         String?
+  ndaAccepted         Boolean       @default(false)
+  ndaAcceptedAt       DateTime?
+  status              MeetingStatus @default(pending)
+  notes               String?
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
 
-  post      Post @relation(fields: [postId], references: [id])
-  requestor User @relation("RequestorMeetings", fields: [requestorId], references: [id])
-  recipient User @relation("RecipientMeetings", fields: [recipientId], references: [id])
+  post          Post           @relation(fields: [postId], references: [id])
+  requestor     User           @relation("RequestorMeetings", fields: [requestorId], references: [id])
+  recipient     User           @relation("RecipientMeetings", fields: [recipientId], references: [id])
+  ndaAcceptance NDAAcceptance?
+  messages      Message[]
 
+  @@index([postId])
+  @@index([requestorId])
+  @@index([recipientId])
+  @@index([status])
   @@map("meeting_requests")
 }
 
+model NDAAcceptance {
+  id               String   @id @default(uuid())
+  userId           String
+  meetingRequestId String   @unique
+  acceptedAt       DateTime @default(now())
+  ipAddress        String?
+
+  user           User           @relation(fields: [userId], references: [id])
+  meetingRequest MeetingRequest @relation(fields: [meetingRequestId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("nda_acceptances")
+}
+
 model Notification {
-  id        String           @id @default(uuid())
-  userId    String
-  type      NotificationType
-  title     String
-  body      String
-  data      Json?
-  isRead    Boolean          @default(false)
-  createdAt DateTime         @default(now())
+  id                String           @id @default(uuid())
+  userId            String
+  type              NotificationType
+  title             String
+  body              String
+  data              Json?
+  relatedEntityType String?
+  relatedEntityId   String?
+  isRead            Boolean          @default(false)
+  isEmailSent       Boolean          @default(false)
+  createdAt         DateTime         @default(now())
 
   user User @relation(fields: [userId], references: [id])
 
+  @@index([userId, isRead])
+  @@index([createdAt])
   @@map("notifications")
 }
 
+// N6: per-device session tokens. Replaces single-string User.refreshToken.
+// Logging in on a second device used to overwrite the first device's token —
+// silent logout after the first access token expired. Each device now owns
+// a Session row, rotates its refreshToken on every refresh, and revoke is
+// scoped to a single row (other devices stay alive).
+model Session {
+  id           String    @id @default(uuid())
+  userId       String
+  refreshToken String    @unique
+  device       String?
+  ipAddress    String?
+  createdAt    DateTime  @default(now())
+  lastUsedAt   DateTime  @updatedAt
+  expiresAt    DateTime
+  revokedAt    DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([refreshToken])
+  @@map("sessions")
+}
+
 model AuditLog {
-  id         String   @id @default(uuid())
-  userId     String?
-  action     String
-  resource   String
-  resourceId String?
-  details    Json?
-  ip         String?
-  userAgent  String?
-  createdAt  DateTime @default(now())
+  id             String      @id @default(uuid())
+  userId         String?
+  userName       String?
+  role           Role?
+  action         String
+  actionType     String?
+  resource       String
+  resourceId     String?
+  targetEntity   String?
+  resultStatus   AuditResult @default(success)
+  details        Json?
+  ip             String?
+  ipPreview      String?
+  userAgent      String?
+  hash           String?
+  prevHash       String?
+  retentionUntil DateTime?
+  createdAt      DateTime    @default(now())
 
   user User? @relation(fields: [userId], references: [id])
 
+  @@index([createdAt])
+  @@index([action])
+  @@index([userId])
   @@map("audit_logs")
 }

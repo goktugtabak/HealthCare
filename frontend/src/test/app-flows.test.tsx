@@ -116,7 +116,7 @@ describe("app flows", () => {
       />,
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: /send request/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /continue to nda/i }));
 
     expect(
       screen.getByText(/please write a collaboration request message/i),
@@ -174,5 +174,87 @@ describe("app flows", () => {
 
     expect(await screen.findByText(/messaging unlocked/i)).toBeInTheDocument();
     expect(screen.getByText(/mehmet\.demir@metu\.edu\.tr/i)).toBeInTheDocument();
+  });
+});
+
+describe("F-02 — normalizePost preserves the author payload from the API", () => {
+  it("returns post.author so PostDetailPage can fall back to it when users[] is empty", async () => {
+    const { normalizePost } = await import("@/api/transforms");
+    const apiResponse = {
+      id: "p-test",
+      authorId: "u1",
+      ownerRole: "healthcare" as const,
+      title: "Test post",
+      workingDomain: "Cardiology",
+      shortExplanation: "...",
+      requiredExpertise: ["ML"],
+      matchTags: [],
+      projectStage: "ideation",
+      collaborationType: "Co-Development",
+      confidentiality: "public",
+      country: "Turkey",
+      city: "Ankara",
+      expiryDate: "2026-12-01",
+      autoClose: false,
+      status: "active",
+      createdAt: "2026-01-01T00:00:00Z",
+      updatedAt: "2026-01-01T00:00:00Z",
+      commitmentLevel: "Part-time",
+      highLevelIdea: "...",
+      notesPreview: "...",
+      author: {
+        id: "u1",
+        fullName: "Dr. Ayse Kaya",
+        firstName: "Ayse",
+        lastName: "Kaya",
+        role: "healthcare" as const,
+        institution: "Hacettepe",
+        city: "Ankara",
+        country: "Turkey",
+        avatar: null,
+      },
+    };
+    const normalized = normalizePost(apiResponse);
+    expect(normalized.author).toBeDefined();
+    expect(normalized.author?.id).toBe("u1");
+    expect(normalized.author?.fullName).toBe("Dr. Ayse Kaya");
+    expect(normalized.author?.role).toBe("healthcare");
+    // Also confirm ownerId still resolves from authorId.
+    expect(normalized.ownerId).toBe("u1");
+  });
+});
+
+describe("F-01 — ProtectedRoute does not flicker to /login during AuthContext bootstrap", () => {
+  it("waits for /api/auth/me to resolve before redirecting unauthenticated users", async () => {
+    // Force real-mode + a valid token in localStorage. authApi.fetchCurrentUser
+    // is mocked to delay 80ms — long enough for React to render at least once
+    // before the bootstrap settles.
+    vi.stubEnv("VITE_USE_MOCK_DATA", "false");
+    window.localStorage.setItem("health-ai-access-token", "test-token");
+
+    const engineer = mockUsers.find((u) => u.id === "u2") as User;
+    const fetchSpy = vi
+      .spyOn(await import("@/api/auth"), "fetchCurrentUser")
+      .mockImplementation(
+        () =>
+          new Promise((resolve) =>
+            setTimeout(() => resolve({ ...engineer, onboardingCompleted: true }), 80),
+          ),
+      );
+
+    const { container } = renderApp("/dashboard");
+
+    // Immediately after render, the ProtectedRoute should be in its loading
+    // state — no /login redirect, no dashboard content yet.
+    expect(container.textContent).not.toMatch(/sign in/i);
+    expect(container.textContent).not.toMatch(/welcome back/i);
+
+    // After the bootstrap resolves, the dashboard renders.
+    expect(
+      await screen.findByRole("heading", { name: /latest opportunities/i }, { timeout: 2000 }),
+    ).toBeInTheDocument();
+
+    fetchSpy.mockRestore();
+    vi.unstubAllEnvs();
   });
 });

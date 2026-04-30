@@ -11,11 +11,14 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Captcha } from "@/components/Captcha";
 import { useAuth } from "@/contexts/AuthContext";
+import { isMockMode, toApiError } from "@/api";
 import { toast } from "@/hooks/use-toast";
 import { ShieldAlert } from "lucide-react";
 
 const institutionalEmailPattern = /\.(edu|edu\.tr|ac\.\w+|edu\.\w+)$/i;
+const REAL_MODE = !isMockMode();
 
 const Field = ({
   id,
@@ -49,6 +52,11 @@ const RegisterPage = () => {
     terms: false,
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [captchaAnswer, setCaptchaAnswer] = useState("");
+  const [captchaVerified, setCaptchaVerified] = useState(false);
+  const [honeypot, setHoneypot] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | undefined>();
 
   const emailLooksInstitutional = useMemo(() => {
     const domain = form.email.split("@")[1] ?? "";
@@ -75,31 +83,56 @@ const RegisterPage = () => {
 
     if (!form.role) nextErrors.role = "Please select a role";
     if (!form.terms) nextErrors.terms = "You must accept the terms";
+    if (!captchaVerified) nextErrors.captcha = "Solve the CAPTCHA to continue";
 
     setErrors(nextErrors);
     return Object.keys(nextErrors).length === 0;
   };
 
-  const handleSubmit = (event: React.FormEvent) => {
+  const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
+    setSubmitError(undefined);
 
     if (!validate()) {
       return;
     }
 
-    register({
-      fullName: form.fullName.trim(),
-      email: form.email.trim(),
-      role: form.role as "engineer" | "healthcare",
-    });
+    try {
+      setSubmitting(true);
+      await register({
+        fullName: form.fullName.trim(),
+        email: form.email.trim(),
+        role: form.role as "engineer" | "healthcare",
+        password: form.password,
+        honeypot,
+      });
 
-    toast({
-      title: "Account created",
-      description:
-        "Complete your onboarding to unlock the role-specific dashboard experience.",
-    });
+      toast({
+        title: "Account created",
+        description: REAL_MODE
+          ? "Check your email to verify the account before logging in."
+          : "Verify your email to continue. We just sent a confirmation link (mock).",
+      });
 
-    navigate("/onboarding");
+      navigate("/verify-email");
+    } catch (err) {
+      const apiError = toApiError(err);
+      const fieldErrors: Record<string, string> = {};
+      if (Array.isArray(apiError.details)) {
+        for (const detail of apiError.details as Array<{ path?: string; msg?: string }>) {
+          if (detail.path && detail.msg) fieldErrors[detail.path] = detail.msg;
+        }
+      }
+      setErrors((prev) => ({ ...prev, ...fieldErrors }));
+      setSubmitError(apiError.message || "Registration failed");
+      toast({
+        title: "Registration failed",
+        description: apiError.message || "Could not create account",
+        variant: "destructive",
+      });
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -118,8 +151,8 @@ const RegisterPage = () => {
             <div>
               <p className="text-sm font-medium">Institutional email is a trust signal, not proof</p>
               <p className="mt-1 text-sm text-muted-foreground">
-                This frontend demo can encourage institutional addresses, but it cannot truly
-                verify ownership without backend support.
+                Domain verification is informational. Admins can manually verify suspicious domains
+                from the admin panel.
               </p>
             </div>
           </div>
@@ -129,6 +162,17 @@ const RegisterPage = () => {
           onSubmit={handleSubmit}
           className="space-y-4 rounded-[28px] border border-border bg-card p-6 shadow-sm"
         >
+          {/* Honeypot — hidden from users, bots fill it. */}
+          <input
+            type="text"
+            tabIndex={-1}
+            autoComplete="off"
+            value={honeypot}
+            onChange={(event) => setHoneypot(event.target.value)}
+            style={{ position: "absolute", left: "-9999px", width: 1, height: 1, opacity: 0 }}
+            aria-hidden="true"
+          />
+
           <Field id="fullName" label="Full name" error={errors.fullName}>
             <Input
               id="fullName"
@@ -138,6 +182,7 @@ const RegisterPage = () => {
               }
               placeholder="Dr. Jane Smith"
               className="mt-1"
+              autoComplete="name"
             />
           </Field>
 
@@ -151,11 +196,11 @@ const RegisterPage = () => {
               }
               placeholder="name@institution.edu.tr"
               className="mt-1"
+              autoComplete="email"
             />
             {form.email && !emailLooksInstitutional && (
               <p className="mt-1 text-xs text-amber-600">
-                This does not look like an institutional domain. You can continue, but the app
-                will treat the address as unverified trust information only.
+                This does not look like an institutional domain. The backend rejects non-.edu addresses.
               </p>
             )}
           </Field>
@@ -170,6 +215,7 @@ const RegisterPage = () => {
                   setForm((currentForm) => ({ ...currentForm, password: event.target.value }))
                 }
                 className="mt-1"
+                autoComplete="new-password"
               />
             </Field>
             <Field id="confirmPassword" label="Confirm password" error={errors.confirmPassword}>
@@ -184,6 +230,7 @@ const RegisterPage = () => {
                   }))
                 }
                 className="mt-1"
+                autoComplete="new-password"
               />
             </Field>
           </div>
@@ -226,8 +273,34 @@ const RegisterPage = () => {
             </div>
           </div>
 
-          <Button type="submit" className="w-full">
-            Continue to onboarding
+          <Captcha
+            value={captchaAnswer}
+            onChange={(value) => {
+              setCaptchaAnswer(value);
+              if (errors.captcha) {
+                setErrors((current) => {
+                  const next = { ...current };
+                  delete next.captcha;
+                  return next;
+                });
+              }
+            }}
+            verified={captchaVerified}
+            onVerifiedChange={setCaptchaVerified}
+            error={errors.captcha}
+          />
+
+          {submitError && (
+            <div
+              role="alert"
+              className="rounded-2xl border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive"
+            >
+              {submitError}
+            </div>
+          )}
+
+          <Button type="submit" className="w-full" disabled={submitting}>
+            {submitting ? "Creating account…" : "Continue to onboarding"}
           </Button>
 
           <p className="text-center text-xs text-muted-foreground">

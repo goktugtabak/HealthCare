@@ -1,12 +1,15 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { usePlatformData } from "@/contexts/PlatformDataContext";
 import { Sidebar } from "@/components/Sidebar";
 import { TopNav } from "@/components/TopNav";
 import { ChatDock } from "@/components/ChatDock";
+import { toast } from "@/hooks/use-toast";
 
 const SIDEBAR_COLLAPSED_KEY = "health-ai-sidebar-collapsed";
+const INACTIVITY_TIMEOUT_MS = 30 * 60 * 1000;
+const INACTIVITY_WARNING_MS = 28 * 60 * 1000;
 
 export const AppShell = ({ children }: { children: React.ReactNode }) => {
   const { currentUser, logout } = useAuth();
@@ -25,6 +28,53 @@ export const AppShell = ({ children }: { children: React.ReactNode }) => {
   useEffect(() => {
     setMobileMenuOpen(false);
   }, [location.pathname]);
+
+  const logoutRef = useRef(logout);
+  logoutRef.current = logout;
+  const navigateRef = useRef(navigate);
+  navigateRef.current = navigate;
+
+  // NFR-06: 30-minute inactivity timeout (with 2-min advance warning)
+  useEffect(() => {
+    if (!currentUser) return;
+    let logoutTimer: ReturnType<typeof setTimeout> | null = null;
+    let warningTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const arm = () => {
+      if (logoutTimer) clearTimeout(logoutTimer);
+      if (warningTimer) clearTimeout(warningTimer);
+      warningTimer = setTimeout(() => {
+        toast({
+          title: "Session expiring soon",
+          description: "You will be logged out in 2 minutes due to inactivity.",
+        });
+      }, INACTIVITY_WARNING_MS);
+      logoutTimer = setTimeout(() => {
+        toast({
+          title: "Logged out",
+          description: "You were signed out after 30 minutes of inactivity.",
+        });
+        logoutRef.current();
+        navigateRef.current("/login");
+      }, INACTIVITY_TIMEOUT_MS);
+    };
+
+    const events: Array<keyof DocumentEventMap> = [
+      "mousemove",
+      "mousedown",
+      "keydown",
+      "touchstart",
+      "scroll",
+    ];
+    events.forEach((event) => document.addEventListener(event, arm, { passive: true }));
+    arm();
+
+    return () => {
+      events.forEach((event) => document.removeEventListener(event, arm));
+      if (logoutTimer) clearTimeout(logoutTimer);
+      if (warningTimer) clearTimeout(warningTimer);
+    };
+  }, [currentUser]);
 
   const handleToggleCollapse = () => {
     setCollapsed((prev) => {

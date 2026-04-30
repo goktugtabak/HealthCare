@@ -35,6 +35,7 @@ const PostDetailPage = () => {
     posts,
     setPostStatus,
     submitMeetingRequest,
+    removePost,
     users,
   } = usePlatformData();
   const [requestModalOpen, setRequestModalOpen] = useState(false);
@@ -45,7 +46,28 @@ const PostDetailPage = () => {
     return null;
   }
 
-  const owner = users.find((user) => user.id === post.ownerId);
+  // F-02: in real-mode `users` only contains the current user (the
+  // /api/admin/users endpoint is admin-only), so users.find() returns
+  // undefined when an engineer views a healthcare-owned post. Fall back to
+  // the `author` payload returned by GET /api/posts/:id, which carries the
+  // same fields we render in the "Posted by" sidebar.
+  const ownerFromUsers = users.find((user) => user.id === post.ownerId);
+  const owner =
+    ownerFromUsers ||
+    (post.author
+      ? {
+          id: post.author.id,
+          fullName:
+            post.author.fullName ||
+            [post.author.firstName, post.author.lastName].filter(Boolean).join(" ") ||
+            "",
+          institution: post.author.institution || "",
+          role: post.author.role || post.ownerRole,
+          city: post.author.city || "",
+          country: post.author.country || "",
+          avatar: post.author.avatar || undefined,
+        }
+      : undefined);
   const isOwner = currentUser.id === post.ownerId;
 
   const hasExistingThread = messages.some(
@@ -117,14 +139,22 @@ const PostDetailPage = () => {
     latestCollaborationRequest?.status === "Declined" ||
     latestCollaborationRequest?.status === "Cancelled";
 
-  const handleCollaborationRequest = ({ message }: { message: string }) => {
+  const handleCollaborationRequest = ({
+    message,
+    proposedSlots,
+    ndaAccepted,
+  }: {
+    message: string;
+    proposedSlots: string[];
+    ndaAccepted: boolean;
+  }) => {
     submitMeetingRequest({
       postId: post.id,
       requesterId: currentUser.id,
       requesterRole: currentUser.role,
       introductoryMessage: message,
-      ndaAccepted: true,
-      proposedSlots: [],
+      ndaAccepted,
+      proposedSlots,
     });
   };
 
@@ -338,10 +368,12 @@ const PostDetailPage = () => {
                   variant="destructive"
                   className="w-full"
                   onClick={() => {
+                    removePost(post.id, currentUser.id);
                     toast({
-                      title: "Admin action unavailable",
-                      description: "Admin redesign is planned for the next phase.",
+                      title: "Post removed",
+                      description: "The post has been removed and its meeting requests cancelled.",
                     });
+                    navigate("/admin/posts");
                   }}
                 >
                   Remove post
@@ -354,6 +386,28 @@ const PostDetailPage = () => {
             <p>Created: {new Date(post.createdAt).toLocaleDateString()}</p>
             <p>Updated: {new Date(post.updatedAt).toLocaleDateString()}</p>
           </div>
+
+          {(post.statusHistory && post.statusHistory.length > 0) && (
+            <div className="rounded-[28px] border border-border bg-card p-5">
+              <h3 className="mb-3 text-sm font-semibold">Lifecycle history</h3>
+              <ol className="space-y-3">
+                {post.statusHistory.slice().reverse().map((entry, index) => (
+                  <li key={`${entry.status}-${entry.changedAt}-${index}`} className="flex gap-3">
+                    <div className="mt-1 h-2 w-2 shrink-0 rounded-full bg-primary" />
+                    <div className="text-xs">
+                      <p className="font-medium">{entry.status}</p>
+                      <p className="text-muted-foreground">
+                        {new Date(entry.changedAt).toLocaleString()}
+                      </p>
+                      {entry.reason && (
+                        <p className="mt-0.5 italic text-muted-foreground/80">{entry.reason}</p>
+                      )}
+                    </div>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          )}
         </div>
       </div>
 
